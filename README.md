@@ -10,6 +10,15 @@ JED/SED Light Baker Plugin. Bakes lighting using simple GPU accelerated ray trac
 
 # Usage:
 
-Sunlight: place a light, set flag "0x2" (sun flag). Controls sun direction, color and intensity. Move it around the world origin (or anchor, see below) to control the direction of the sun light. Range has no effect.
-Skylight: place a light, set flag "0x4" (sky flag). Controls sky color and intensity. Position and range have no effect.
-Anchor: place a light, set flag "0x8" (sun anchor). The sun light will orbit this light instead of the world origin. All settings except position do nothing.
+## Sunlight:
+To create a sun, place a light and set flag "0x2" (sun flag). This light controls the sun direction, color and intensity.
+Move it around the world origin (or anchor, see below) to control the direction of the sun light.
+Range has no effect.
+
+## Skylight:
+To create a sky light, place a light and set flag "0x4" (sky flag). This light controls the sky color and intensity.
+Position and range have no effect.
+
+## Anchor:
+To change the orbit position of the sun, place a light and set flag "0x8" (sun anchor). The sun light will then orbit this light instead of the world origin, useful for big off-center levels.
+All settings except position do nothing.
