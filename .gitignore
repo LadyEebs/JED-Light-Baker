@@ -1,0 +1,10 @@
+*.vsidx
+*.db
+*.json
+/Source/.vs
+/Source/Debug
+/Source/Light Baker/Release
+/Source/Light Baker/x64
+/Source/Light Baker
+*.pdb
+/Source/Release
