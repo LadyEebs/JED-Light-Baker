@@ -1,7 +1,7 @@
 # JED-Light-Baker
 JED/SED Light Baker Plugin. Bakes lighting using simple GPU accelerated ray tracing.
 
-<img width="710" height="605" alt="image" src="https://github.com/user-attachments/assets/8aad3906-aadf-49a1-88b3-e6953eab83b1" />
+<img width="717" height="617" alt="image" src="https://github.com/user-attachments/assets/a323245a-a864-4fa4-93bc-290bdca37dfa" />
 
 # Requirements:
 - JED/NJED/SED level editor of choice (not some of them have bugs with RGB lighting)
