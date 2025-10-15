@@ -22,6 +22,10 @@ static const uint ELight_Sun        = 0x2;
 static const uint ELight_Sky        = 0x4;
 static const uint ELight_Anchor     = 0x8;
 
+// standard JK alpha value
+static const float kSurfaceAlpha = 90.0/255.0;
+
+// bias the ray along the ray dir to avoid self intersection or stuff like that
 static const float kRayBias = 1e-4;
 
 // maximum number of adjoins to cross for a given ray (puts an upper bound on recursions for safety)
@@ -344,14 +348,16 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 				uint nSurfaceFlags = aSurfaces[nHitSurfaceIndex].nFlags;
 				if (nSurfaceFlags & ESurface_IsVisible)
 				{
-					if (nSurfaceFlags & ESurface_IsTranslucent)
-					{
-						float4 transparentColor = lerp(float4(1,1,1,1), aSurfaces[nHitSurfaceIndex].albedo, 90.0f/255.0f);
-						payload.attenuation *= transparentColor;
-					}
+					const float3 albedo = aSurfaces[nHitSurfaceIndex].albedo * kSurfaceAlpha;
 
 					const float4 surfaceLight = InterpolateSurfaceLight(nHitSurfaceIndex, hitPos);
-					payload.reflection += aSurfaces[nHitSurfaceIndex].albedo * surfaceLight;
+					payload.reflection += albedo * payload.attenuation * surfaceLight;
+
+					if (nSurfaceFlags & ESurface_IsTranslucent)
+					{
+						float4 transparentColor = albedo + (1.0 - kSurfaceAlpha);
+						payload.attenuation *= transparentColor;
+					}
 				}
 
 				if(nNextSector == nPreviousSector)
