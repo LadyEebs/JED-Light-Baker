@@ -37,8 +37,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID)
 	SRayPayload payload = (SRayPayload)0;
 	payload.attenuation = float4(1,1,1,1);
 
-	int nStartSector = GetRayStartSector(nSectorIndex, nSurfaceIndex, normal, rayDir);
-	const bool bRayHit = TraceRay(payload, nStartSector, vertex + rayDir * kRayBias, rayTarget);
+	const bool bRayHit = TraceRay(payload, nSectorIndex, vertex + rayDir * kRayBias, rayTarget);
 	if (bRayHit && (aSurfaces[payload.nHitSurfaceIndex].nFlags & ESurface_IsVisible))
 	{
 		const float4 surfaceLight = InterpolateSurfaceLight(payload.nHitSurfaceIndex, payload.hitPos);

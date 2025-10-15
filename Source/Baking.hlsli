@@ -132,16 +132,6 @@ bool IsLayerVisible(int nLayerIndex)
 	return (aLayerMasks[nBucketIndex] & (1u << nBucketPlace));
 }
 
-// If the vertex is sitting on an adjoin, and the ray would travel in that direction
-// then we can run into a situation where we effectively miss the adjoin
-// this will move the ray to the adjoined sector in that case
-int GetRayStartSector(int nSectorIndex, int nSurfaceIndex, float3 normal, float3 rayDir)
-{
-	if (aSurfaces[nSurfaceIndex].nAdjoinSector >= 0 && dot(rayDir, normal) >= 0)
-		nSectorIndex = aSurfaces[nSurfaceIndex].nAdjoinSector;
-	return nSectorIndex;
-}
-
 // Generates an arbitrary tangent frame around a normal
 float3x3 GenerateTangentFrame(float3 normal)
 {
@@ -163,6 +153,7 @@ float3 GenRay(int N, int M)
 	float v = (float)bits * 2.3283064365386963e-10f; // / 0x100000000
 	float u = (float)N / (float)M;
 
+	u = lerp(0.0001, 1.0, u);
 	const float phi = v * 2.0f * 3.141592f;
 	const float cosTheta = sqrt(1.0f - u);
 	const float sinTheta = sqrt(1.0f - cosTheta * cosTheta);
@@ -238,7 +229,7 @@ bool IsPointOnSurface(int nSurfaceIndex, float3 position)
 		const float3 vertex1 = aVertices[nFirstVertex + i].position.xyz;
 		const float3 vertex2 = aVertices[nFirstVertex + (i + 1) % nNumVertices].position.xyz;
 		const float dist = dot(cross(normal, vertex2 - vertex1), position - vertex1);
-		if (dist < -1e-3f)
+		if (dist < -1e-3)
 		{
 			bResult = false;
 			break;
