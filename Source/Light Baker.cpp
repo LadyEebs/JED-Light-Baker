@@ -382,7 +382,6 @@ bool CLightBakerDlg::BakeLighting(uint32_t nInitBakeFlags)
 	BuildLayerBitmask();
 	BuildLights();
 	BuildGeometry();
-	ComputeSmoothNormals();
 
 	// remove flags if no sun/sky were found
 	if (m_nSunLightIndex < 0)
@@ -396,6 +395,9 @@ bool CLightBakerDlg::BakeLighting(uint32_t nInitBakeFlags)
 
 	// only update level info after updating the bake flags because we write them
 	UpdateLevelInfo();
+
+	// generate smooth normals
+	ComputeSmoothNormals();
 
 	if (m_nBakeFlags & ELightBake_Direct)
 		BakeDirectLighting();
