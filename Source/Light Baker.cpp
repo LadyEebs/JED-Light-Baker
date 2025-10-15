@@ -67,6 +67,7 @@ CLightBakerDlg::CLightBakerDlg(IJED* pJed, CWnd* pParent)
 	, m_pSurfaceBuffer(nullptr)
 	, m_pLightBuffer(nullptr)
 	, m_pVertexBuffer(nullptr)
+	, m_pNormalBuffer(nullptr)
 	, m_pAccumulationBuffer(nullptr)
 	, m_pColorCurrResultBuffer(nullptr)
 	, m_pColorLastResultBuffer(nullptr)
@@ -74,6 +75,7 @@ CLightBakerDlg::CLightBakerDlg(IJED* pJed, CWnd* pParent)
 	, m_pBakeDirectShader(nullptr)
 	, m_pBakeSkyEmissiveShader(nullptr)
 	, m_pBakeIndirectShader(nullptr)
+	, m_pGenNormalsShader(nullptr)
 	, m_pLevelInfoConstants(nullptr)
 	, m_bBakePointLights(TRUE)
 	, m_bBakeSunLight(TRUE)
@@ -117,6 +119,10 @@ CLightBakerDlg::~CLightBakerDlg()
 	if (m_pBakeIndirectShader)
 		m_pBakeIndirectShader->Release();
 	m_pBakeIndirectShader = nullptr;
+
+	if (m_pGenNormalsShader)
+		m_pGenNormalsShader->Release();
+	m_pGenNormalsShader = nullptr;
 
 	if (m_pLevelInfoConstants)
 		m_pLevelInfoConstants->Release();
@@ -168,6 +174,12 @@ bool CLightBakerDlg::CreateDeviceD3D()
 	if (!CreateComputeShader(m_pDeviceD3D, &m_pBakeIndirectShader, IDR_BAKE_INDIRECT_CSO))
 	{
 		PrintMessage(m_pJed, msg_error, "Failed to compile indirect shader.");
+		return false;
+	}
+
+	if (!CreateComputeShader(m_pDeviceD3D, &m_pGenNormalsShader, IDR_GEN_SMOOTH_NORMALS_CSO))
+	{
+		PrintMessage(m_pJed, msg_error, "Failed to compile vertex normals generation shader.");
 		return false;
 	}
 
@@ -370,6 +382,7 @@ bool CLightBakerDlg::BakeLighting(uint32_t nInitBakeFlags)
 	BuildLayerBitmask();
 	BuildLights();
 	BuildGeometry();
+	ComputeSmoothNormals();
 
 	// remove flags if no sun/sky were found
 	if (m_nSunLightIndex < 0)
@@ -435,6 +448,7 @@ void CLightBakerDlg::AllocateBuffers()
 	m_pSectorBuffer           = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, m_nNumSectors,             sizeof(SSector), DXGI_FORMAT_UNKNOWN, 0, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
 	m_pSurfaceBuffer          = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalSurfaces,          sizeof(SSurface), DXGI_FORMAT_UNKNOWN, 0, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
 	m_pVertexBuffer           = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(SVertex), DXGI_FORMAT_UNKNOWN, 0, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
+	m_pNormalBuffer           = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(float4), DXGI_FORMAT_UNKNOWN, 1, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
 	m_pLightBuffer            = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, m_nNumLights,              sizeof(SLight), DXGI_FORMAT_UNKNOWN, 0, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
 	m_pColorLastResultBuffer  = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(float4), DXGI_FORMAT_UNKNOWN, 1, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
 	m_pColorCurrResultBuffer  = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(float4), DXGI_FORMAT_UNKNOWN, 1, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
@@ -454,6 +468,7 @@ void CLightBakerDlg::FreeBuffers()
 	delete m_pSurfaceBuffer;
 	delete m_pVertexBuffer;
 	delete m_pLightBuffer;
+	delete m_pNormalBuffer;
 	delete m_pColorLastResultBuffer;
 	delete m_pColorCurrResultBuffer;
 	delete m_pAccumulationBuffer;
@@ -534,6 +549,7 @@ void CLightBakerDlg::BuildGeometry()
 	SSector*  paSectors  = m_pSectorBuffer->Map<SSector>(D3D11_MAP_WRITE);
 	SSurface* paSurfaces = m_pSurfaceBuffer->Map<SSurface>(D3D11_MAP_WRITE);
 	SVertex*  paVertices = m_pVertexBuffer->Map<SVertex>(D3D11_MAP_WRITE);
+	float4*   paNormals  = m_pNormalBuffer->Map<float4>(D3D11_MAP_WRITE);
 
 	uint32_t nSurfaceOffset = 0;
 	uint32_t nVertexOffset = 0;
@@ -558,19 +574,7 @@ void CLightBakerDlg::BuildGeometry()
 			SSurface* pSurface = &paSurfaces[nSurfaceOffset];
 			pSurface->nFirstVertex = nVertexOffset;
 			pSurface->nNumVertices = nNumVertices;
-			for (int nVertexIndex = 0; nVertexIndex < nNumVertices; ++nVertexIndex)
-			{
-				float3 vertex = GetSurfaceVertex(nSectorIndex, nSurfaceIndex, nVertexIndex);
-
-				SVertex* pVertex = &paVertices[nVertexOffset++];
-				pVertex->position.x = vertex.x;
-				pVertex->position.y = vertex.y;
-				pVertex->position.z = vertex.z;
-				pVertex->nSectorIndex = nSectorIndex;
-				pVertex->nSurfaceIndex = nSurfaceOffset;
-			}
-			++nSurfaceOffset;
-
+			
 			tjedsurfacerec surface;
 			memset(&surface, 0, sizeof(tjedsurfacerec));
 			m_pJedLevel->GetSurface(nSectorIndex, nSurfaceIndex, &surface, sf_all);
@@ -624,12 +628,32 @@ void CLightBakerDlg::BuildGeometry()
 				pSurface->nFlags |= ESurface_IsSky;
 			if (surface.faceflags & EFace_Translucent)
 				pSurface->nFlags |= ESurface_IsTranslucent;
+
+			for (int nVertexIndex = 0; nVertexIndex < nNumVertices; ++nVertexIndex)
+			{
+				float3 vertex = GetSurfaceVertex(nSectorIndex, nSurfaceIndex, nVertexIndex);
+
+				SVertex* pVertex = &paVertices[nVertexOffset];
+				pVertex->position.x = vertex.x;
+				pVertex->position.y = vertex.y;
+				pVertex->position.z = vertex.z;
+				pVertex->nSectorIndex = nSectorIndex;
+				pVertex->nSurfaceIndex = nSurfaceOffset;
+
+				float4* pNormal = &paNormals[nVertexOffset++];
+				pNormal->x = normal.x;
+				pNormal->y = normal.y;
+				pNormal->z = normal.z;
+				pNormal->w = 1.0f;
+			}
+			++nSurfaceOffset;
 		}
 	}
 
 	m_pSectorBuffer->Unmap();
 	m_pSurfaceBuffer->Unmap();
 	m_pVertexBuffer->Unmap();
+	m_pNormalBuffer->Unmap();
 }
 
 int CLightBakerDlg::CreateComputeShader(ID3D11Device* pDevice, ID3D11ComputeShader** pShader, UINT resourceID) const
@@ -685,6 +709,7 @@ void CLightBakerDlg::DispatchBakePass(int nDispatchX, int nDispatchY, ID3D11Comp
 		m_pSurfaceBuffer->GetSRV(),
 		m_pVertexBuffer->GetSRV(),
 		m_pLightBuffer->GetSRV(),
+		m_pNormalBuffer->GetSRV(),
 		pReadBuffer->GetSRV()
 	};
 	
@@ -703,11 +728,11 @@ void CLightBakerDlg::DispatchBakePass(int nDispatchX, int nDispatchY, ID3D11Comp
 	m_pDeviceContextD3D->Dispatch(nDispatchX, nDispatchY, 1);
 
 	ID3D11Buffer* nullBuf[] = { nullptr };
-	ID3D11ShaderResourceView* nullSRV[] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
+	ID3D11ShaderResourceView* nullSRV[] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
 	ID3D11UnorderedAccessView* nullUAV[] = { nullptr, nullptr };
 
 	m_pDeviceContextD3D->CSSetConstantBuffers(0, 1, nullBuf);
-	m_pDeviceContextD3D->CSSetShaderResources(0, 7, nullSRV);
+	m_pDeviceContextD3D->CSSetShaderResources(0, 8, nullSRV);
 	m_pDeviceContextD3D->CSSetUnorderedAccessViews(0, 2, nullUAV, 0);
 }
 
@@ -748,6 +773,39 @@ void CLightBakerDlg::BakeIndirectLighting()
 		//m_pDeviceContextD3D->Flush();
 		std::swap(pReadBuffer, pWriteBuffer);
 	}
+}
+
+void CLightBakerDlg::ComputeSmoothNormals()
+{
+	ID3D11ShaderResourceView* apShaderResources[] =
+	{
+		m_pSelectionBitmaskBuffer->GetSRV(),
+		m_pLayerBitmaskBuffer->GetSRV(),
+		m_pSectorBuffer->GetSRV(),
+		m_pSurfaceBuffer->GetSRV(),
+		m_pVertexBuffer->GetSRV(),
+	};
+
+	ID3D11UnorderedAccessView* apUnorderedResources[] =
+	{
+		m_pNormalBuffer->GetUAV()
+	};
+
+	ID3D11Buffer* apConstantBuffers[] = { m_pLevelInfoConstants };
+
+	m_pDeviceContextD3D->CSSetShader(m_pGenNormalsShader, nullptr, 0);
+	m_pDeviceContextD3D->CSSetConstantBuffers(0, 1, apConstantBuffers);
+	m_pDeviceContextD3D->CSSetShaderResources(0, 5, apShaderResources);
+	m_pDeviceContextD3D->CSSetUnorderedAccessViews(0, 1, apUnorderedResources, 0);
+	m_pDeviceContextD3D->Dispatch((m_nTotalVertices + 15) / 16, (m_nTotalVertices + 15) / 16, 1);
+
+	ID3D11Buffer* nullBuf[] = { nullptr };
+	ID3D11ShaderResourceView* nullSRV[] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
+	ID3D11UnorderedAccessView* nullUAV[] = { nullptr, nullptr };
+
+	m_pDeviceContextD3D->CSSetConstantBuffers(0, 1, nullBuf);
+	m_pDeviceContextD3D->CSSetShaderResources(0, 5, nullSRV);
+	m_pDeviceContextD3D->CSSetUnorderedAccessViews(0, 1, nullUAV, 0);
 }
 
 void CLightBakerDlg::DownloadAndApplyToLevel()

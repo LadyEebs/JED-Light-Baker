@@ -16,6 +16,7 @@
 #define IDC_INDIRECT_RAY_LABEL          1009
 #define IDR_BAKE_SUN_CSO                1009
 #define IDC_INDIRECT_RAY_EDIT           1010
+#define IDR_GEN_SMOOTH_NORMALS_CSO      1010
 #define IDC_INDIRECT_RAY_SPIN           1011
 #define IDC_BOUNCES_LABEL               1012
 #define IDC_BOUNCES_EDIT                1013
@@ -40,7 +41,7 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        1010
+#define _APS_NEXT_RESOURCE_VALUE        1011
 #define _APS_NEXT_COMMAND_VALUE         32771
 #define _APS_NEXT_CONTROL_VALUE         1021
 #define _APS_NEXT_SYMED_VALUE           1000

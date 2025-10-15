@@ -24,7 +24,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID)
 		return;
 
     float3 vertex = aVertices[nVertexIndex].position.xyz;
-    float3 normal = aSurfaces[nSurfaceIndex].normal.xyz;
+    float3 normal = normalize(aVertexNormals[nVertexIndex].xyz);
 	float3x3 frame = GenerateTangentFrame(normal);
 	
 	float4 color = float4(0,0,0,0);

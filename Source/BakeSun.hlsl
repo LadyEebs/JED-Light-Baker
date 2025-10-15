@@ -20,7 +20,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID)
 		return;
 
     float3 vertex = aVertices[nVertexIndex].position.xyz;
-    float3 normal = aSurfaces[nSurfaceIndex].normal.xyz;
+    float3 normal = normalize(aVertexNormals[nVertexIndex].xyz);
 
 	float3 sunPos = aLights[g_levelInfo.nSunLightIndex].position.xyz;
 	if (g_levelInfo.nAnchorLightIndex >= 0)

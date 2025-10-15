@@ -98,13 +98,14 @@ cbuffer CBLevelInfo : register( b0 )
 };
 
 // Resources
-Buffer<uint>               aSectorMasks  : register(t0);
-Buffer<uint>               aLayerMasks   : register(t1);
-StructuredBuffer<SSector>  aSectors      : register(t2);
-StructuredBuffer<SSurface> aSurfaces     : register(t3);
-StructuredBuffer<SVertex>  aVertices     : register(t4);
-StructuredBuffer<SLight>   aLights       : register(t5);
-StructuredBuffer<uint4>    aVertexColors : register(t6);
+Buffer<uint>               aSectorMasks   : register(t0);
+Buffer<uint>               aLayerMasks    : register(t1);
+StructuredBuffer<SSector>  aSectors       : register(t2);
+StructuredBuffer<SSurface> aSurfaces      : register(t3);
+StructuredBuffer<SVertex>  aVertices      : register(t4);
+StructuredBuffer<SLight>   aLights        : register(t5);
+StructuredBuffer<float4>   aVertexNormals : register(t6);
+StructuredBuffer<uint4>    aVertexColors  : register(t7);
 
 RWStructuredBuffer<uint4> aVertexColorsWrite  : register(u0);
 RWStructuredBuffer<uint4> aVertexAccumulation : register(u1);

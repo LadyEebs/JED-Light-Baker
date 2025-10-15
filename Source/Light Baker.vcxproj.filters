@@ -71,6 +71,7 @@
     <None Include="BakeDirect.cso">
       <Filter>Resource Files\Shaders</Filter>
     </None>
+    <None Include="GenSmoothNormals.cso" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Light Baker.h">
@@ -117,6 +118,9 @@
       <Filter>Source Files\Shaders</Filter>
     </FxCompile>
     <FxCompile Include="BakeSkyEmissive.hlsl">
+      <Filter>Source Files\Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="GenSmoothNormals.hlsl">
       <Filter>Source Files\Shaders</Filter>
     </FxCompile>
   </ItemGroup>

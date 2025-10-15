@@ -279,6 +279,7 @@ private:
 	// baking functions that actually call DispatchBakePass
 	void BakeDirectLighting();
 	void BakeIndirectLighting();
+	void ComputeSmoothNormals();
 
 	// downloads the results from the GPU and writes them back to the level
 	void DownloadAndApplyToLevel();
@@ -299,6 +300,7 @@ private:
 	CGpuBuffer* m_pSurfaceBuffer;
 	CGpuBuffer* m_pVertexBuffer;
 	CGpuBuffer* m_pLightBuffer;
+	CGpuBuffer* m_pNormalBuffer;
 	CGpuBuffer* m_pColorLastResultBuffer;
 	CGpuBuffer* m_pColorCurrResultBuffer;
 	CGpuBuffer* m_pAccumulationBuffer;
@@ -307,6 +309,7 @@ private:
 	ID3D11ComputeShader* m_pBakeDirectShader;
 	ID3D11ComputeShader* m_pBakeSkyEmissiveShader;
 	ID3D11ComputeShader* m_pBakeIndirectShader;
+	ID3D11ComputeShader* m_pGenNormalsShader;
 
 	ID3D11Buffer* m_pLevelInfoConstants;
 
