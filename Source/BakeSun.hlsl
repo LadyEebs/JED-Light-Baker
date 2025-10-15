@@ -3,9 +3,9 @@
 [numthreads(256, 1, 1)]
 void main(int3 dispatchThreadID : SV_DispatchThreadID)
 {
-    int nVertexIndex = dispatchThreadID.x;
-    if (nVertexIndex >= g_levelInfo.nTotalVertices)
-        return;
+	int nVertexIndex = dispatchThreadID.x;
+	if (nVertexIndex >= g_levelInfo.nTotalVertices)
+		return;
 			
 	int nSectorIndex = aVertices[nVertexIndex].nSectorIndex;	
 	if (!IsSectorVisible(nSectorIndex))
@@ -19,8 +19,10 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID)
 	if(!(aSurfaces[nSurfaceIndex].nFlags & ESurface_IsVisible))
 		return;
 
-    float3 vertex = aVertices[nVertexIndex].position.xyz;
-    float3 normal = normalize(aVertexNormals[nVertexIndex].xyz);
+	float3 vertex = aVertices[nVertexIndex].position.xyz;
+	AdjustWorldPos(nSectorIndex, vertex);
+
+	float3 normal = normalize(aVertexNormals[nVertexIndex].xyz);
 
 	float3 sunPos = aLights[g_levelInfo.nSunLightIndex].position.xyz;
 	if (g_levelInfo.nAnchorLightIndex >= 0)
@@ -39,7 +41,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID)
 
 		bool bRayHit = TraceRay(payload, nSectorIndex, vertex + rayDir * kRayBias, rayTarget);
 		if (bRayHit && (aSurfaces[payload.nHitSurfaceIndex].nFlags & ESurface_IsSky))
-		    color = ndotl * payload.attenuation * aLights[g_levelInfo.nSunLightIndex].color;
+			color = ndotl * payload.attenuation * aLights[g_levelInfo.nSunLightIndex].color;
 	}
 	
 	// Write the result

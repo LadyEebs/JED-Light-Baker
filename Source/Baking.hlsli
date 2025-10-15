@@ -26,7 +26,7 @@ static const uint ELight_Anchor     = 0x8;
 static const float kSurfaceAlpha = 90.0/255.0;
 
 // bias the ray along the ray dir to avoid self intersection or stuff like that
-static const float kRayBias = 1e-4;
+static const float kRayBias = -1e-4;
 
 // maximum number of adjoins to cross for a given ray (puts an upper bound on recursions for safety)
 static const int kMaxRecursion = 1024; // should be more than enough?
@@ -43,10 +43,11 @@ struct SRayPayload
 // CPU mirrored structs
 struct SSector
 {
-	uint nFirstSurface;
-	uint nNumSurfaces;
-	int  nLayerIndex;
-	uint _padding;
+	uint   nFirstSurface;
+	uint   nNumSurfaces;
+	int    nLayerIndex;
+	uint   _padding;
+	float4 center;
 };
 
 struct SSurface
@@ -111,7 +112,7 @@ StructuredBuffer<SSurface> aSurfaces      : register(t3);
 StructuredBuffer<SVertex>  aVertices      : register(t4);
 StructuredBuffer<SLight>   aLights        : register(t5);
 StructuredBuffer<float4>   aVertexNormals : register(t6);
-StructuredBuffer<uint4>    aVertexColors  : register(t7);
+StructuredBuffer<float4>   aVertexColors  : register(t7);
 
 RWStructuredBuffer<uint4> aVertexColorsWrite  : register(u0);
 RWStructuredBuffer<uint4> aVertexAccumulation : register(u1);
@@ -130,6 +131,38 @@ bool IsLayerVisible(int nLayerIndex)
 	const uint nBucketIndex = nLayerIndex / 32u;
 	const uint nBucketPlace = nLayerIndex % 32u;	
 	return (aLayerMasks[nBucketIndex] & (1u << nBucketPlace));
+}
+
+void AdjustWorldPos(int nSectorIndex, inout float3 vertex)
+{
+	float3 boundCenter = aSectors[nSectorIndex].center.xyz;
+	float3 dirToCenter = normalize(boundCenter - vertex);
+
+	const uint nFirstSurface = aSectors[nSectorIndex].nFirstSurface;
+	const uint nLastSurface  = nFirstSurface + aSectors[nSectorIndex].nNumSurfaces;
+	
+	[loop]
+	for (uint nSurfaceIndex = nFirstSurface; nSurfaceIndex < nLastSurface; ++nSurfaceIndex)
+	{
+		const uint nFirstVertex = aSurfaces[nSurfaceIndex].nFirstVertex;
+
+		const float3 firstVertex = aVertices[nFirstVertex].position.xyz;
+		const float3 normal = aSurfaces[nSurfaceIndex].normal.xyz;
+
+		float3 edge = vertex - firstVertex;
+		if (dot(normal, edge) < 0.0)
+		{
+			float ndotr = dot(normal.xyz, dirToCenter.xyz);
+			if (ndotr > 0.0)
+			{
+				float u = dot(normal.xyz, firstVertex.xyz - vertex.xyz) / (ndotr);
+				if (u >= 0.0 && u <= 1.0)
+				{
+					vertex = dirToCenter.xyz * u + vertex;
+				}
+			}
+		}
+	}
 }
 
 // Generates an arbitrary tangent frame around a normal
@@ -206,7 +239,7 @@ float4 InterpolateSurfaceLight(int nSurfaceIndex, float3 pos)
         // Weight for this vertex
         const float weight = (tanHalfPrev + tanHalfNext) / lenCurr;
 
-        vertexLight += asfloat(aVertexColors[nFirstVertex + nCurrIndex]) * weight;
+        vertexLight += aVertexColors[nFirstVertex + nCurrIndex] * weight;
         totalWeight += weight;
     }
 
@@ -280,7 +313,6 @@ bool IsSurfCrossed(int nSurfaceIndex, float3 start, float3 end, inout float3 hit
 			}
 		}
 	}
-
 	return bResult;
 }
 
@@ -331,10 +363,14 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 		float3 hitPos = start;
 		int nHitSurfaceIndex = -1;
 		const bool bRayHit = TraceSurfaces(nCurrentSector, start, end, hitPos, nHitSurfaceIndex);
-		[branch] if (bRayHit)
+		
+		[branch]
+		if (bRayHit)
 		{
 			int nNextSector = aSurfaces[nHitSurfaceIndex].nAdjoinSector;
-			[branch] if (nNextSector >= 0)
+			
+			[branch]
+			if (nNextSector >= 0)
 			{
 				uint nSurfaceFlags = aSurfaces[nHitSurfaceIndex].nFlags;
 				if (nSurfaceFlags & ESurface_IsVisible)
@@ -352,6 +388,7 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 
 				if(nNextSector == nPreviousSector)
 					break;
+
 				nPreviousSector = nCurrentSector;
 				nCurrentSector = nNextSector;
 				++nRecurseLevel;

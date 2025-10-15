@@ -24,14 +24,16 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID)
 		return;
 
     float3 vertex = aVertices[nVertexIndex].position.xyz;
-    float3 normal = normalize(aVertexNormals[nVertexIndex].xyz);
-	float3x3 frame = GenerateTangentFrame(normal);
+   	AdjustWorldPos(nSectorIndex, vertex);
+
+	const float3 normal = normalize(aVertexNormals[nVertexIndex].xyz);
+	const float3x3 frame = GenerateTangentFrame(normal);
 	
 	float4 color = float4(0,0,0,0);
 	float3 rayDir = GenRay(nRayIndex, g_levelInfo.nSkyEmissiveRays);
 	rayDir = mul(rayDir, frame);
 	
-	float3 rayTarget = vertex + 100000.0f * rayDir;
+	const float3 rayTarget = vertex + 100000.0f * rayDir;
 
 	SRayPayload payload = (SRayPayload)0;
 	payload.attenuation = float4(1,1,1,1);

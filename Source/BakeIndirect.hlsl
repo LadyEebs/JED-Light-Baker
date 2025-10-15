@@ -23,8 +23,10 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID)
 	if(!(aSurfaces[nSurfaceIndex].nFlags & ESurface_IsVisible))
 		return;
 
-    const float3 vertex = aVertices[nVertexIndex].position.xyz;
-    const float3 normal = normalize(aVertexNormals[nVertexIndex].xyz);
+    float3 vertex = aVertices[nVertexIndex].position.xyz;
+    	AdjustWorldPos(nSectorIndex, vertex);
+
+	const float3 normal = normalize(aVertexNormals[nVertexIndex].xyz);
 	const float3x3 frame = GenerateTangentFrame(normal);
 
 	float4 color = float4(0,0,0,0);
@@ -32,7 +34,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID)
 	float3 rayDir = GenRay(nRayIndex, g_levelInfo.nIndirectRays);
 	rayDir = mul(rayDir, frame);
 	
-	float3 rayTarget = vertex + 100000.0f * rayDir;
+	const float3 rayTarget = vertex + 100000.0f * rayDir;
 
 	SRayPayload payload = (SRayPayload)0;
 	payload.attenuation = float4(1,1,1,1);

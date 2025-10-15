@@ -14,6 +14,7 @@ struct SSector
 	uint32_t nNumSurfaces;
 	uint32_t nLayerIndex;
 	uint32_t _padding;
+	float4   center;
 };
 
 struct SSurface

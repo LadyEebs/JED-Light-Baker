@@ -28,20 +28,22 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID)
 		return;
 	
 	float3 vertex = aVertices[nVertexIndex].position.xyz;
-    float3 normal = normalize(aVertexNormals[nVertexIndex].xyz);
+   	AdjustWorldPos(nSectorIndex, vertex);
 
-	float3 lightDir = aLights[nLightIndex].position.xyz - vertex;
-	float ndotl = dot(lightDir, normal);
+	const float3 normal = normalize(aVertexNormals[nVertexIndex].xyz);
+
+	const float3 lightDir = aLights[nLightIndex].position.xyz - vertex;
+	const float ndotl = dot(lightDir, normal);
 	if (ndotl <= 0.0f)
 		return;
 
 	const float rangeSqr = aLights[nLightIndex].range * aLights[nLightIndex].range;
-	float dist2 = dot(lightDir, lightDir);
+	const float dist2 = dot(lightDir, lightDir);
 	if (dist2 >= rangeSqr)
 		return;
 			
-	float dist = sqrt(dist2);
-	float3 lightVec = lightDir / dist;
+	const float dist = sqrt(dist2);
+	const float3 lightVec = lightDir / dist;
 
 	SRayPayload payload = (SRayPayload)0;
 	payload.attenuation = float4(1,1,1,1);

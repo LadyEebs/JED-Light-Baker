@@ -563,11 +563,17 @@ void CLightBakerDlg::BuildGeometry()
 		memset(&sector, 0, sizeof(tjedsectorrec));
 		m_pJedLevel->GetSector(nSectorIndex, &sector, s_all);
 		SColormap* pColormap = LoadColormap(sector.colormap);
+		
+		tjedbox box;
+		m_pJed->FindBBox(nSectorIndex, &box);
 
 		SSector* pSector = &paSectors[nSectorIndex];
 		pSector->nFirstSurface = nSurfaceOffset;
 		pSector->nNumSurfaces = nNumSurfaces;
 		pSector->nLayerIndex = sector.layer;
+		pSector->center.x = float(box.x1 + box.x2) * 0.5f;
+		pSector->center.y = float(box.y1 + box.y2) * 0.5f;
+		pSector->center.z = float(box.z1 + box.z2) * 0.5f;
 
 		for (int nSurfaceIndex = 0; nSurfaceIndex < nNumSurfaces; ++nSurfaceIndex)
 		{
