@@ -30,3 +30,4 @@ All settings except position do nothing.
 - Indirect lighting with bounced light from both solid and translucent surfaces as well as translucent color tinting
 - Gamma correct lighting (optional)
 - Tone mapped result, if using very strong lights and aiming to avoid clamping to 1.0
+- Smooth normals for curved surfaces
