@@ -33,7 +33,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID)
 	float3 rayDir = GenRay(nRayIndex, g_levelInfo.nSkyEmissiveRays);
 	rayDir = mul(rayDir, frame);
 	
-	const float3 rayTarget = vertex + 100000.0f * rayDir;
+	const float3 rayTarget = kSkyDistance * rayDir + vertex;
 
 	SRayPayload payload = (SRayPayload)0;
 	payload.attenuation = float4(1,1,1,1);

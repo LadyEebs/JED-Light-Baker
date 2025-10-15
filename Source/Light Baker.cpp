@@ -742,6 +742,8 @@ void CLightBakerDlg::DispatchBakePass(int nDispatchX, int nDispatchY, ID3D11Comp
 	m_pDeviceContextD3D->CSSetConstantBuffers(0, 1, nullBuf);
 	m_pDeviceContextD3D->CSSetShaderResources(0, 8, nullSRV);
 	m_pDeviceContextD3D->CSSetUnorderedAccessViews(0, 2, nullUAV, 0);
+	
+	m_pDeviceContextD3D->Flush();
 }
 
 void CLightBakerDlg::BakeDirectLighting()
@@ -752,14 +754,12 @@ void CLightBakerDlg::BakeDirectLighting()
 	// - Sky and emissive (atomic add)
 	if (m_nBakeFlags & ELightBake_Sun)
 		DispatchBakePass((m_nTotalVertices + 255) / 256, 1, m_pBakeSunShader, m_pColorLastResultBuffer, m_pColorCurrResultBuffer);
-
+	
 	if (m_nBakeFlags & ELightBake_Lights)
 		DispatchBakePass((m_nTotalVertices + 15) / 16, (m_nNumLights + 15) / 16, m_pBakeDirectShader, m_pColorLastResultBuffer, m_pColorCurrResultBuffer);
-
+	
 	if ((m_nBakeFlags & ELightBake_Sky) || (m_nBakeFlags & ELightBake_Emissive))
 		DispatchBakePass((m_nTotalVertices + 15) / 16, (m_nSkyEmissiveRayCount + 15) / 16, m_pBakeSkyEmissiveShader, m_pColorLastResultBuffer, m_pColorCurrResultBuffer);
-
-	//m_pDeviceContextD3D->Flush();
 }
 
 void CLightBakerDlg::BakeIndirectLighting()
@@ -769,7 +769,6 @@ void CLightBakerDlg::BakeIndirectLighting()
 
 	// Copy the direct light result for the first bounce
 	m_pDeviceContextD3D->CopyResource(pReadBuffer->GetBuffer(), m_pAccumulationBuffer->GetBuffer());
-//	m_pDeviceContextD3D->Flush();
 
 	for (int nBounce = 0; nBounce < m_nIndirectBounces; ++nBounce)
 	{
@@ -778,7 +777,6 @@ void CLightBakerDlg::BakeIndirectLighting()
 
 		DispatchBakePass((m_nTotalVertices + 15) / 16, (m_nIndirectRayCount + 15) / 16, m_pBakeIndirectShader, pReadBuffer, pWriteBuffer);
 
-		//m_pDeviceContextD3D->Flush();
 		std::swap(pReadBuffer, pWriteBuffer);
 	}
 }

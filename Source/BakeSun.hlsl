@@ -29,7 +29,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID)
 		sunPos -= aLights[g_levelInfo.nAnchorLightIndex].position.xyz;
 
 	float3 rayDir    = normalize(sunPos.xyz);
-	float3 rayTarget = vertex + 100000.0f * rayDir;
+	float3 rayTarget = kSkyDistance * rayDir + vertex;
 	
 	float4 color = float4(0,0,0,0);
 	float ndotl      = dot(normal, rayDir);

@@ -22,6 +22,8 @@ static const uint ELight_Sun        = 0x2;
 static const uint ELight_Sky        = 0x4;
 static const uint ELight_Anchor     = 0x8;
 
+static const float kSkyDistance = 512.0;
+
 // standard JK alpha value
 static const float kSurfaceAlpha = 90.0/255.0;
 
@@ -294,7 +296,7 @@ bool IsSurfCrossed(int nSurfaceIndex, float3 start, float3 end, inout float3 hit
 
 		const bool bAllOutsidePositive = (distToStart > 0.0001 && distToEnd > 0.0001);
 		const bool bAllOutsideNegative = (distToStart < -0.0001 && distToEnd < -0.0001);
-		const bool bBothOnPlane        = (abs(distToStart) <= 0.0001f && abs(distToEnd) <= 0.0001f);
+		const bool bBothOnPlane        = (abs(distToStart) <= 0.0001 && abs(distToEnd) <= 0.0001);
 
 		[branch]
 		if (!bAllOutsidePositive && !bAllOutsideNegative)
@@ -316,8 +318,8 @@ bool IsSurfCrossed(int nSurfaceIndex, float3 start, float3 end, inout float3 hit
 	return bResult;
 }
 
-// Test all the surfaces in a sector, return true if something was hit
-// as well as hit position and surface index
+// Test all the surfaces in a sector, return true if something was hit as well as hit position and surface index
+// todo: split adjoins and surfaces into their own data so we're not doing a dumb check for all of them
 bool TraceSurfaces(int nSectorIndex, float3 start, float3 end, inout float3 hitPos, inout int nHitSurfaceIndex)
 {
 	bool bResult = false;
@@ -325,9 +327,14 @@ bool TraceSurfaces(int nSectorIndex, float3 start, float3 end, inout float3 hitP
 	const uint nFirstSurface = aSectors[nSectorIndex].nFirstSurface;
 	const uint nLastSurface  = nFirstSurface + aSectors[nSectorIndex].nNumSurfaces;
 
+	uint nSurfaceIndex;
+
 	[loop]
-	for (uint nSurfaceIndex = nFirstSurface; nSurfaceIndex < nLastSurface; ++nSurfaceIndex)
+	for (nSurfaceIndex = nFirstSurface; nSurfaceIndex < nLastSurface; ++nSurfaceIndex)
 	{
+		if (aSurfaces[nSurfaceIndex].nAdjoinSector < 0)
+			continue;
+
 		const float3 normal = aSurfaces[nSurfaceIndex].normal.xyz;
 		const float dotVal  = dot(normal, end - start);
 		if (dotVal < 0)
@@ -341,73 +348,79 @@ bool TraceSurfaces(int nSectorIndex, float3 start, float3 end, inout float3 hitP
 		}
 	}
 
+	if (!bResult)
+	{	
+		[loop]
+		for (nSurfaceIndex = nFirstSurface; nSurfaceIndex < nLastSurface; ++nSurfaceIndex)
+		{
+			if (aSurfaces[nSurfaceIndex].nAdjoinSector >= 0)
+				continue;
+
+			const float3 normal = aSurfaces[nSurfaceIndex].normal.xyz;
+			const float dotVal  = dot(normal, end - start);
+			if (dotVal < 0)
+			{
+				if (IsSurfCrossed(nSurfaceIndex, start, end, hitPos))
+				{
+					nHitSurfaceIndex = nSurfaceIndex;
+					bResult = true;
+					break;
+				}
+			}
+		}
+	}
 	return bResult;
 }
 
-// Core tracing routine, recurses through adjoins and returns true if a solid surface was hit
 bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 end)
 {
-	bool bResult = false;
-
 	int nRecurseLevel  = 0;
 	int nCurrentSector = nSectorIndex;
-	int nPreviousSector = nCurrentSector;
+	int nPreviousSector = -1;
 
 	payload.nHitSurfaceIndex = -1;
 	payload.hitPos = start;
 	payload.attenuation = float4(1,1,1,1);
 
 	[loop]
-	while (nCurrentSector >= 0 && nRecurseLevel < kMaxRecursion)
+	while (nCurrentSector >= 0 && nCurrentSector != nPreviousSector && nRecurseLevel < kMaxRecursion)
 	{
 		float3 hitPos = start;
 		int nHitSurfaceIndex = -1;
 		const bool bRayHit = TraceSurfaces(nCurrentSector, start, end, hitPos, nHitSurfaceIndex);
 		
-		[branch]
-		if (bRayHit)
+		// didn't hit anything
+		if (nHitSurfaceIndex < 0)
+			return false;
+
+		// we hit something
+		payload.nHitSurfaceIndex = nHitSurfaceIndex;
+		payload.hitPos = hitPos;
+		
+		// move to next sector (if available)
+		nPreviousSector = nCurrentSector;
+		nCurrentSector = aSurfaces[nHitSurfaceIndex].nAdjoinSector;
+		if (nCurrentSector >= 0)
 		{
-			int nNextSector = aSurfaces[nHitSurfaceIndex].nAdjoinSector;
-			
-			[branch]
-			if (nNextSector >= 0)
+			// add transparent contributions
+			uint nSurfaceFlags = aSurfaces[nHitSurfaceIndex].nFlags;
+			if (nSurfaceFlags & ESurface_IsVisible)
 			{
-				uint nSurfaceFlags = aSurfaces[nHitSurfaceIndex].nFlags;
-				if (nSurfaceFlags & ESurface_IsVisible)
-				{
-					float4 albedo = aSurfaces[nHitSurfaceIndex].albedo;
-					if (nSurfaceFlags & ESurface_IsTranslucent)
-						albedo *= kSurfaceAlpha;
+				float4 albedo = aSurfaces[nHitSurfaceIndex].albedo;
+				if (nSurfaceFlags & ESurface_IsTranslucent)
+					albedo *= kSurfaceAlpha;
 
-					const float4 surfaceLight = InterpolateSurfaceLight(nHitSurfaceIndex, hitPos);
-					payload.reflection += albedo * payload.attenuation * surfaceLight;
+				const float4 surfaceLight = InterpolateSurfaceLight(nHitSurfaceIndex, hitPos);
+				payload.reflection += albedo * payload.attenuation * surfaceLight;
 
-					if (nSurfaceFlags & ESurface_IsTranslucent)
-						payload.attenuation *= albedo + (1.0 - kSurfaceAlpha);
-				}
-
-				if(nNextSector == nPreviousSector)
-					break;
-
-				nPreviousSector = nCurrentSector;
-				nCurrentSector = nNextSector;
-				++nRecurseLevel;
+				if (nSurfaceFlags & ESurface_IsTranslucent)
+					payload.attenuation *= albedo + (1.0 - kSurfaceAlpha);
 			}
-			else
-			{
-				payload.nHitSurfaceIndex = nHitSurfaceIndex;
-				payload.hitPos = hitPos;
-				bResult = true;
-				break;
-			}
-		}
-		else
-		{
-			break;
+			++nRecurseLevel;
 		}
 	}
 
-	return bResult;
+	return payload.nHitSurfaceIndex >= 0;
 }
 
 // Uses a spinlock to add results to a vertex (one for each channel)
