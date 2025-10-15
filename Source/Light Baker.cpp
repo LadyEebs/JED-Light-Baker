@@ -519,6 +519,13 @@ void CLightBakerDlg::BuildLights()
 		tjedlightrec light;
 		memset(&light, 0, sizeof(tjedlightrec));
 		m_pJedLevel->GetLight(nLightIndex, &light, lt_all);
+		
+		if (m_nBakeFlags & ELightBake_GammaCorrect)
+		{
+			light.r = ToLinear(light.r);
+			light.g = ToLinear(light.g);
+			light.b = ToLinear(light.b);
+		}
 
 		SLight* pLight = &paLights[nLightIndex];
 		pLight->nSectorIndex = m_pJed->FindSectorForXYZ(light.x, light.y, light.z);
@@ -534,13 +541,6 @@ void CLightBakerDlg::BuildLights()
 			m_nSkyLightIndex = nLightIndex;
 		else if (light.flags & ELight_Anchor)
 			m_nAnchorLightIndex = nLightIndex;
-
-		if (m_nBakeFlags & ELightBake_GammaCorrect)
-		{
-			light.r = ToLinear(light.r);
-			light.g = ToLinear(light.g);
-			light.b = ToLinear(light.b);
-		}
 	}
 
 	m_pLightBuffer->Unmap();
