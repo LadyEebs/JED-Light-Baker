@@ -50,7 +50,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID)
 		if (nLightSectorIndex != nSectorIndex)
 		{
 			int nStartSector = GetRayStartSector(nSectorIndex, nSurfaceIndex, normal, lightDir);
-			bool bRayHit = TraceRay(payload, nStartSector, vertex, aLights[nLightIndex].position.xyz);
+			bool bRayHit = TraceRay(payload, nStartSector, vertex + lightDir * kRayBias, aLights[nLightIndex].position.xyz);
 			if (bRayHit)
 				return;
 		}

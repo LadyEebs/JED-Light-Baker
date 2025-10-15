@@ -22,6 +22,8 @@ static const uint ELight_Sun        = 0x2;
 static const uint ELight_Sky        = 0x4;
 static const uint ELight_Anchor     = 0x8;
 
+static const float kRayBias = 1e-4;
+
 // maximum number of adjoins to cross for a given ray (puts an upper bound on recursions for safety)
 static const int kMaxRecursion = 1024; // should be more than enough?
 

@@ -38,7 +38,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID)
 		payload.attenuation = float4(1,1,1,1);
 
 		int nStartSector = GetRayStartSector(nSectorIndex, nSurfaceIndex, normal, rayDir);
-		bool bRayHit = TraceRay(payload, nStartSector, vertex, rayTarget);
+		bool bRayHit = TraceRay(payload, nStartSector, vertex + rayDir * kRayBias, rayTarget);
 		if (bRayHit && (aSurfaces[payload.nHitSurfaceIndex].nFlags & ESurface_IsSky))
 		    color = ndotl * payload.attenuation * aLights[g_levelInfo.nSunLightIndex].color;
 	}
