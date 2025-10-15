@@ -27,9 +27,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID)
 	if (nLightSectorIndex < 0 || (aLights[nLightIndex].nFlags & ELight_Sun) || (aLights[nLightIndex].nFlags & ELight_Sky)) // invalid sector or a sun/sky light
 		return;
 	
-	float3 vertex = aVertices[nVertexIndex].position.xyz;
-   	AdjustWorldPos(nSectorIndex, vertex);
-
+	const float3 vertex = aVertices[nVertexIndex].position.xyz;
 	const float3 normal = normalize(aVertexNormals[nVertexIndex].xyz);
 
 	const float3 lightDir = aLights[nLightIndex].position.xyz - vertex;

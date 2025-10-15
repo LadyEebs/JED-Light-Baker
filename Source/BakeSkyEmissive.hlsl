@@ -3,9 +3,9 @@
 [numthreads(16, 16, 1)]
 void main(int3 dispatchThreadID : SV_DispatchThreadID)
 {
-    int nVertexIndex = dispatchThreadID.x;
-    if (nVertexIndex >= g_levelInfo.nTotalVertices)
-        return;
+	int nVertexIndex = dispatchThreadID.x;
+	if (nVertexIndex >= g_levelInfo.nTotalVertices)
+		return;
 
 	int nRayIndex = dispatchThreadID.y;
 	if (nRayIndex >= g_levelInfo.nSkyEmissiveRays)
@@ -23,9 +23,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID)
 	if(!(aSurfaces[nSurfaceIndex].nFlags & ESurface_IsVisible))
 		return;
 
-    float3 vertex = aVertices[nVertexIndex].position.xyz;
-   	AdjustWorldPos(nSectorIndex, vertex);
-
+	const float3 vertex = aVertices[nVertexIndex].position.xyz;
 	const float3 normal = normalize(aVertexNormals[nVertexIndex].xyz);
 	const float3x3 frame = GenerateTangentFrame(normal);
 	

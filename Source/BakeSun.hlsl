@@ -19,10 +19,8 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID)
 	if(!(aSurfaces[nSurfaceIndex].nFlags & ESurface_IsVisible))
 		return;
 
-	float3 vertex = aVertices[nVertexIndex].position.xyz;
-	AdjustWorldPos(nSectorIndex, vertex);
-
-	float3 normal = normalize(aVertexNormals[nVertexIndex].xyz);
+	const float3 vertex = aVertices[nVertexIndex].position.xyz;
+	const float3 normal = normalize(aVertexNormals[nVertexIndex].xyz);
 
 	float3 sunPos = aLights[g_levelInfo.nSunLightIndex].position.xyz;
 	if (g_levelInfo.nAnchorLightIndex >= 0)

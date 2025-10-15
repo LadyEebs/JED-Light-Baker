@@ -135,38 +135,6 @@ bool IsLayerVisible(int nLayerIndex)
 	return (aLayerMasks[nBucketIndex] & (1u << nBucketPlace));
 }
 
-void AdjustWorldPos(int nSectorIndex, inout float3 vertex)
-{
-	float3 boundCenter = aSectors[nSectorIndex].center.xyz;
-	float3 dirToCenter = normalize(boundCenter - vertex);
-
-	const uint nFirstSurface = aSectors[nSectorIndex].nFirstSurface;
-	const uint nLastSurface  = nFirstSurface + aSectors[nSectorIndex].nNumSurfaces;
-	
-	[loop]
-	for (uint nSurfaceIndex = nFirstSurface; nSurfaceIndex < nLastSurface; ++nSurfaceIndex)
-	{
-		const uint nFirstVertex = aSurfaces[nSurfaceIndex].nFirstVertex;
-
-		const float3 firstVertex = aVertices[nFirstVertex].position.xyz;
-		const float3 normal = aSurfaces[nSurfaceIndex].normal.xyz;
-
-		float3 edge = vertex - firstVertex;
-		if (dot(normal, edge) < 0.0)
-		{
-			float ndotr = dot(normal.xyz, dirToCenter.xyz);
-			if (ndotr > 0.0)
-			{
-				float u = dot(normal.xyz, firstVertex.xyz - vertex.xyz) / (ndotr);
-				if (u >= 0.0 && u <= 1.0)
-				{
-					vertex = dirToCenter.xyz * u + vertex;
-				}
-			}
-		}
-	}
-}
-
 // Generates an arbitrary tangent frame around a normal
 float3x3 GenerateTangentFrame(float3 normal)
 {
