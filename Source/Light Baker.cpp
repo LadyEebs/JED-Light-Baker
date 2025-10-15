@@ -723,7 +723,7 @@ void CLightBakerDlg::DispatchBakePass(int nDispatchX, int nDispatchY, ID3D11Comp
 
 	m_pDeviceContextD3D->CSSetShader(pShader, nullptr, 0);
 	m_pDeviceContextD3D->CSSetConstantBuffers(0, 1, apConstantBuffers);
-	m_pDeviceContextD3D->CSSetShaderResources(0, 7, apShaderResources);
+	m_pDeviceContextD3D->CSSetShaderResources(0, 8, apShaderResources);
 	m_pDeviceContextD3D->CSSetUnorderedAccessViews(0, 2, apUnorderedResources, 0);
 	m_pDeviceContextD3D->Dispatch(nDispatchX, nDispatchY, 1);
 
