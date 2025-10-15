@@ -49,17 +49,17 @@ struct SLight
 // Light bake configuration
 enum ELightBakeFlags
 {
-	ELightBake_Lights = 0x1,
-	ELightBake_Sun = 0x2,
-	ELightBake_Sky = 0x4,
-	ELightBake_Emissive = 0x8,
-	ELightBake_Indirect = 0x10,
-	ELightBake_Selected = 0x20,
-	ELightBake_VisibleLayers = 0x40,
-	ELightBake_GammaCorrect = 0x80,
+	ELightBake_Lights             =   0x1,
+	ELightBake_Sun                =   0x2,
+	ELightBake_Sky                =   0x4,
+	ELightBake_Emissive           =   0x8,
+	ELightBake_Indirect           =  0x10,
+	ELightBake_Selected           =  0x20,
+	ELightBake_VisibleLayers      =  0x40,
+	ELightBake_GammaCorrect       =  0x80,
 	ELightBake_ExtraLightEmissive = 0x100,
-	ELightBake_ToneMap = 0x200,
-	ELightBake_PhysicalFalloff = 0x400,
+	ELightBake_ToneMap            = 0x200,
+	ELightBake_PhysicalFalloff    = 0x400,
 
 	ELightBake_Direct = ELightBake_Lights | ELightBake_Sun | ELightBake_Sky | ELightBake_Emissive
 };
@@ -67,8 +67,8 @@ enum ELightBakeFlags
 // Gpu surface flags
 enum ESurfaceFlags
 {
-	ESurface_IsSky = 0x1,
-	ESurface_IsVisible = 0x2,
+	ESurface_IsSky         = 0x1,
+	ESurface_IsVisible     = 0x2,
 	ESurface_IsTranslucent = 0x4,
 };
 
@@ -77,13 +77,13 @@ enum ESectorFlags
 {
 	// SED specific
 	ESector_NoAmbientLightRGB = 0x20000000,
-	ESector_NoAmbientLight = 0x40000000
+	ESector_NoAmbientLight    = 0x40000000
 };
 
 // Engine/editor adjoin flags
 enum EAdjoinFlags
 {
-	EAdjoin_Visible = 0x1,
+	EAdjoin_Visible     =        0x1,
 	EAdjoin_BlocksLight = 0x80000000,
 };
 
@@ -103,8 +103,8 @@ enum ESkyFlags
 // Baker specific light flags
 enum ELightFlags
 {
-	ELight_Sun = 0x2,
-	ELight_Sky = 0x4,
+	ELight_Sun    = 0x2,
+	ELight_Sky    = 0x4,
 	ELight_Anchor = 0x8,
 };
 
