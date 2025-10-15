@@ -32,15 +32,16 @@ struct SVertex
 {
 	uint32_t  nSectorIndex;
 	uint32_t  nSurfaceIndex;
-	uint32_t  _padding[2];
+	uint32_t  nLocalSurfaceIndex;
+	uint32_t  nLocalVertexIndex;
 	float4    position;
 };
 
 struct SLight
 {
-	int32_t   nSectorIndex;
-	uint32_t  nLayerIndex;
 	uint32_t  nFlags;
+	int32_t   nSectorIndex;
+	int32_t   nLayerIndex;
 	float     range;
 	float4    position;
 	float4    color;
@@ -124,7 +125,7 @@ struct SLevelInfo
 	uint32_t nBakeFlags;
 	int32_t  nSkyEmissiveRays;
 	int32_t  nIndirectRays;
-	int32_t  _padding1;
+	float    normalSmoothCos;
 
 	int32_t  _padding2[4];
 };
@@ -231,6 +232,7 @@ public:
 	int m_nSkyEmissiveRayCount;
 	int m_nIndirectRayCount;
 	int m_nIndirectBounces;
+	int m_nNormalSmoothingAngle;
 
 	afx_msg void OnBnClickedBakeAll();
 	afx_msg void OnBnClickedBakeSelected();

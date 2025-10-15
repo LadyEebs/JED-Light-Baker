@@ -67,14 +67,14 @@ struct SVertex
 {
 	uint   nSectorIndex;
 	uint   nSurfaceIndex;
-	uint2  _padding;
+	uint2  nLocalData; // unused, for local tracking and writeback
 	float4 position;
 };
 
 struct SLight
 {
-	int    nSectorIndex;
 	uint   nFlags;
+	int    nSectorIndex;
 	int    nLayerIndex;
 	float  range;
 	float4 position;
@@ -96,7 +96,7 @@ struct SLevelInfo
 	uint nBakeFlags;
 	int  nSkyEmissiveRays;
 	int  nIndirectRays;
-	int  _padding1;
+	float normalSmoothCos;
 
 	int4 _padding2;
 };
@@ -287,7 +287,6 @@ bool IsSurfCrossed(int nSurfaceIndex, float3 start, float3 end, inout float3 hit
 }
 
 // Test all the surfaces in a sector, return true if something was hit as well as hit position and surface index
-// todo: split adjoins and surfaces into their own data so we're not doing a dumb check for all of them
 bool TraceSurfaces(int nSectorIndex, float3 start, float3 end, inout float3 hitPos, inout int nHitSurfaceIndex)
 {
 	bool bResult = false;
@@ -295,14 +294,9 @@ bool TraceSurfaces(int nSectorIndex, float3 start, float3 end, inout float3 hitP
 	const uint nFirstSurface = aSectors[nSectorIndex].nFirstSurface;
 	const uint nLastSurface  = nFirstSurface + aSectors[nSectorIndex].nNumSurfaces;
 
-	uint nSurfaceIndex;
-
 	[loop]
-	for (nSurfaceIndex = nFirstSurface; nSurfaceIndex < nLastSurface; ++nSurfaceIndex)
+	for (uint nSurfaceIndex = nFirstSurface; nSurfaceIndex < nLastSurface; ++nSurfaceIndex)
 	{
-		if (aSurfaces[nSurfaceIndex].nAdjoinSector < 0)
-			continue;
-
 		const float3 normal = aSurfaces[nSurfaceIndex].normal.xyz;
 		const float dotVal  = dot(normal, end - start);
 		if (dotVal < 0)
@@ -312,28 +306,6 @@ bool TraceSurfaces(int nSectorIndex, float3 start, float3 end, inout float3 hitP
 				nHitSurfaceIndex = nSurfaceIndex;
 				bResult = true;
 				break;
-			}
-		}
-	}
-
-	if (!bResult)
-	{	
-		[loop]
-		for (nSurfaceIndex = nFirstSurface; nSurfaceIndex < nLastSurface; ++nSurfaceIndex)
-		{
-			if (aSurfaces[nSurfaceIndex].nAdjoinSector >= 0)
-				continue;
-
-			const float3 normal = aSurfaces[nSurfaceIndex].normal.xyz;
-			const float dotVal  = dot(normal, end - start);
-			if (dotVal < 0)
-			{
-				if (IsSurfCrossed(nSurfaceIndex, start, end, hitPos))
-				{
-					nHitSurfaceIndex = nSurfaceIndex;
-					bResult = true;
-					break;
-				}
 			}
 		}
 	}

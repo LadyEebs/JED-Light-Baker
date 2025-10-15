@@ -28,6 +28,10 @@
 #define IDC_GROUP_SUN                   1019
 #define IDC_CHECK1                      1020
 #define IDC_CHECK_TONE_MAP              1020
+#define IDC_NORMAL_SMOOTH_LABEL         1021
+#define IDC_NORMAL_SMOOTH_EDIT          1022
+#define IDC_RAY_SPIN2                   1023
+#define IDC_NORMAL_SMOOTH_SPIN          1023
 #define IDD_LIGHTBAKER_DLG              2000
 #define IDC_CHECK_POINT                 2001
 #define IDC_CHECK_SUN                   2002
@@ -43,7 +47,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        1011
 #define _APS_NEXT_COMMAND_VALUE         32771
-#define _APS_NEXT_CONTROL_VALUE         1021
+#define _APS_NEXT_CONTROL_VALUE         1022
 #define _APS_NEXT_SYMED_VALUE           1000
 #endif
 #endif

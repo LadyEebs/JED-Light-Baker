@@ -24,7 +24,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID)
 	const float3 diff = vertex1 - vertex0;
 	if (dot(diff, diff) < 1e-5) // vertices are close, consider them the same
 	{
-		if (dot(normal0, normal1) > cos(35.0 * 3.141592/180.0)) // faces are pretty similar in angle, smooth them
+		if (dot(normal0, normal1) > g_levelInfo.normalSmoothCos) // faces are pretty similar in angle, smooth them
 		{
 			// reusing some functions and bindings
 			WriteVertexLight(aVertexColorsWrite, nVertexIndex0, float4(normal1, 1.0));

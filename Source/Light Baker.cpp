@@ -99,6 +99,7 @@ CLightBakerDlg::CLightBakerDlg(IJED* pJed, CWnd* pParent)
 	, m_nNumLayers(0)
 	, m_nTotalSurfaces(0)
 	, m_nTotalVertices(0)
+	, m_nNormalSmoothingAngle(35)
 {
 }
 
@@ -209,9 +210,11 @@ void CLightBakerDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Text(pDX, IDC_INDIRECT_RAY_EDIT, m_nIndirectRayCount);
 	DDX_Text(pDX, IDC_BOUNCES_EDIT, m_nIndirectBounces);
 
-	DDV_MinMaxInt(pDX, m_nSkyEmissiveRayCount, 16, 1024);	
-	DDV_MinMaxInt(pDX, m_nIndirectRayCount, 16, 1024);	
+	DDV_MinMaxInt(pDX, m_nSkyEmissiveRayCount, 16, 1024);
+	DDV_MinMaxInt(pDX, m_nIndirectRayCount, 16, 1024);
 	DDV_MinMaxInt(pDX, m_nIndirectBounces, 1, 10);
+	DDX_Text(pDX, IDC_NORMAL_SMOOTH_EDIT, m_nNormalSmoothingAngle);
+	DDV_MinMaxInt(pDX, m_nNormalSmoothingAngle, 0, 180);
 }
 
 BOOL CLightBakerDlg::OnInitDialog()
@@ -224,6 +227,7 @@ BOOL CLightBakerDlg::OnInitDialog()
 	m_nIndirectRayCount = 1024;
 	m_nSkyEmissiveRayCount = 1024;
 	m_nIndirectBounces = 3;
+	m_nNormalSmoothingAngle = 35;
 	UpdateData(FALSE);
 
 	CSpinButtonCtrl* pSkyEmissiveRaySpin = (CSpinButtonCtrl*)GetDlgItem(IDC_RAY_SPIN);
@@ -245,6 +249,13 @@ BOOL CLightBakerDlg::OnInitDialog()
 	{
 		pIndirectBouncesSpin->SetRange(1, 5);
 		pIndirectBouncesSpin->SetPos(m_nIndirectBounces);
+	}
+
+	CSpinButtonCtrl* pNormalSmoothSpin = (CSpinButtonCtrl*)GetDlgItem(IDC_NORMAL_SMOOTH_SPIN);
+	if (pNormalSmoothSpin)
+	{
+		pNormalSmoothSpin->SetRange(0, 180);
+		pNormalSmoothSpin->SetPos(m_nNormalSmoothingAngle);
 	}
 
 	return TRUE;
@@ -449,7 +460,7 @@ void CLightBakerDlg::AllocateBuffers()
 	m_pLayerBitmaskBuffer     = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, (m_nNumLayers + 31) / 32, sizeof(uint32_t), DXGI_FORMAT_R32_UINT, 0, 0, (D3D11_RESOURCE_MISC_FLAG)0);
 	m_pSectorBuffer           = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, m_nNumSectors,             sizeof(SSector), DXGI_FORMAT_UNKNOWN, 0, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
 	m_pSurfaceBuffer          = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalSurfaces,          sizeof(SSurface), DXGI_FORMAT_UNKNOWN, 0, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
-	m_pVertexBuffer           = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(SVertex), DXGI_FORMAT_UNKNOWN, 0, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
+	m_pVertexBuffer           = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(SVertex), DXGI_FORMAT_UNKNOWN, 0, 1, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
 	m_pNormalBuffer           = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(float4), DXGI_FORMAT_UNKNOWN, 1, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
 	m_pLightBuffer            = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, m_nNumLights,              sizeof(SLight), DXGI_FORMAT_UNKNOWN, 0, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
 	m_pColorLastResultBuffer  = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(float4), DXGI_FORMAT_UNKNOWN, 1, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
@@ -575,17 +586,24 @@ void CLightBakerDlg::BuildGeometry()
 		pSector->center.y = float(box.y1 + box.y2) * 0.5f;
 		pSector->center.z = float(box.z1 + box.z2) * 0.5f;
 
+		uint32_t nSurfaceBase = nSurfaceOffset;
+		uint32_t nAdjoinCursor = nSurfaceBase;              // grows forward
+		uint32_t nSolidCursor = nSurfaceBase + nNumSurfaces - 1; // grows backward
 		for (int nSurfaceIndex = 0; nSurfaceIndex < nNumSurfaces; ++nSurfaceIndex)
 		{
-			const int nNumVertices = m_pJedLevel->SurfaceNVertices(nSectorIndex, nSurfaceIndex);
-
-			SSurface* pSurface = &paSurfaces[nSurfaceOffset];
-			pSurface->nFirstVertex = nVertexOffset;
-			pSurface->nNumVertices = nNumVertices;
-			
 			tjedsurfacerec surface;
 			memset(&surface, 0, sizeof(tjedsurfacerec));
 			m_pJedLevel->GetSurface(nSectorIndex, nSurfaceIndex, &surface, sf_all);
+
+			const int nAdjoinSector = (surface.adjoinflags & EAdjoin_BlocksLight) ? -1 : surface.adjoinsc;
+			const bool bHasAdjoin = (nAdjoinSector >= 0);
+			uint32_t nDstIndex = bHasAdjoin ? nAdjoinCursor++ : nSolidCursor--;
+			
+			const int nNumVertices = m_pJedLevel->SurfaceNVertices(nSectorIndex, nSurfaceIndex);
+
+			SSurface* pSurface = &paSurfaces[nDstIndex];
+			pSurface->nFirstVertex = nVertexOffset;
+			pSurface->nNumVertices = nNumVertices;
 
 			float3 albedo = { 0.5f,0.5f,0.5f };
 			float3 emissive = { 0,0,0 };
@@ -630,7 +648,7 @@ void CLightBakerDlg::BuildGeometry()
 			pSurface->normal.z = normal.z;
 
 			// if a surface is set to block light, then ignore the adjoin value
-			pSurface->nAdjoinSector = (surface.adjoinflags & EAdjoin_BlocksLight) ? -1 : surface.adjoinsc;
+			pSurface->nAdjoinSector = nAdjoinSector;
 			pSurface->nFlags = IsSurfaceVisible(nSectorIndex, nSurfaceIndex) ? ESurface_IsVisible : 0;
 			if (((surface.surfflags & ESky_Horizon) != 0) || ((surface.surfflags & ESky_Ceiling) != 0))
 				pSurface->nFlags |= ESurface_IsSky;
@@ -646,7 +664,9 @@ void CLightBakerDlg::BuildGeometry()
 				pVertex->position.y = vertex.y;
 				pVertex->position.z = vertex.z;
 				pVertex->nSectorIndex = nSectorIndex;
-				pVertex->nSurfaceIndex = nSurfaceOffset;
+				pVertex->nSurfaceIndex = nDstIndex;
+				pVertex->nLocalSurfaceIndex = nSurfaceIndex;
+				pVertex->nLocalVertexIndex = nVertexIndex;
 
 				float4* pNormal = &paNormals[nVertexOffset++];
 				pNormal->x = normal.x;
@@ -654,7 +674,8 @@ void CLightBakerDlg::BuildGeometry()
 				pNormal->z = normal.z;
 				pNormal->w = 1.0f;
 			}
-			++nSurfaceOffset;
+			nSurfaceOffset = nAdjoinCursor + (nNumSurfaces - (nSolidCursor - nSurfaceBase + 1));
+			//++nSurfaceOffset;
 		}
 	}
 
@@ -704,6 +725,7 @@ void CLightBakerDlg::UpdateLevelInfo()
 	levelInfo.nSunLightIndex    = m_nSunLightIndex;
 	levelInfo.nSkyLightIndex    = m_nSkyLightIndex;
 	levelInfo.nAnchorLightIndex = m_nAnchorLightIndex;
+	levelInfo.normalSmoothCos   = cosf((float)m_nNormalSmoothingAngle * (3.141592f / 180.0f));
 	m_pDeviceContextD3D->UpdateSubresource(m_pLevelInfoConstants, 0, nullptr, &levelInfo, 0, 0);
 }
 
@@ -817,14 +839,36 @@ void CLightBakerDlg::ComputeSmoothNormals()
 void CLightBakerDlg::DownloadAndApplyToLevel()
 {
 	float4* pVertexData = m_pAccumulationBuffer->Map<float4>(D3D11_MAP_READ);
-	if (pVertexData)
+	SVertex* paVertices = m_pVertexBuffer->Map<SVertex>(D3D11_MAP_READ);
+	if (pVertexData && paVertices)
 	{
-		// it's easier to just traverse by sector again than to try and reverse index from the vertex
-		int nVertexOffset = 0;
+		for (int nVertexIndex = 0; nVertexIndex < m_nTotalVertices; ++nVertexIndex)
+		{
+			float4 color = pVertexData[nVertexIndex];
+			uint32_t nSectorIndex = paVertices[nVertexIndex].nSectorIndex;
+			uint32_t nLocalSurfaceIndex = paVertices[nVertexIndex].nLocalSurfaceIndex;
+			uint32_t nLocalVertexIndex = paVertices[nVertexIndex].nLocalVertexIndex;
+
+			if (m_nBakeFlags & ELightBake_ToneMap)
+			{
+				float a = 2.51f;
+				float b = 0.03f;
+				float c = 2.43f;
+				float d = 0.59f;
+				float e = 0.14f;
+				color = ((color * (a * color + b)) / (color * (c * color + d) + e));
+			}
+
+			if (m_nBakeFlags & ELightBake_GammaCorrect)
+				color = ToSRGB(color);
+			m_pJedLevel->SurfaceSetVertexLight(nSectorIndex, nLocalSurfaceIndex, nLocalVertexIndex, color.w, color.x, color.y, color.z);
+		}
+
+		// todo: do this on gpu
 		for (int nSectorIndex = 0; nSectorIndex < m_nNumSectors; ++nSectorIndex)
 		{
 			// todo: might be better to actually also trace probes at the center of sectors to get better ambient
-			float4 ambientColor = {0,0,0,0};
+			float4 ambientColor = { 0,0,0,0 };
 			float totalAmbient = 0.0f;
 
 			const int nNumSurfaces = m_pJedLevel->SectorNSurfaces(nSectorIndex);
@@ -833,29 +877,10 @@ void CLightBakerDlg::DownloadAndApplyToLevel()
 				const int nNumVertices = m_pJedLevel->SurfaceNVertices(nSectorIndex, nSurfaceIndex);
 				for (int nVertexIndex = 0; nVertexIndex < nNumVertices; ++nVertexIndex)
 				{
-					float4 color = pVertexData[nVertexOffset++];
+					float r, g, b, a;
+					m_pJedLevel->SurfaceGetVertexLight(nSectorIndex, nSurfaceIndex, nVertexIndex, &a, &r, &g, &b);
 
-					if (m_nBakeFlags & ELightBake_ToneMap)
-					{
-						float a = 2.51f;
-						float b = 0.03f;
-						float c = 2.43f;
-						float d = 0.59f;
-						float e = 0.14f;
-						color = ((color * (a * color + b)) / (color * (c * color + d) + e));
-					
-
-						// account for 2x overbright
-						//color *= 0.5f;
-						//color = color / (color + 1.0f);
-						//color *= 2.0f;
-					}
-
-					if(m_nBakeFlags & ELightBake_GammaCorrect)
-						color = ToSRGB(color);
-					m_pJedLevel->SurfaceSetVertexLight(nSectorIndex, nSurfaceIndex, nVertexIndex, color.w, color.x, color.y, color.z);
-
-					ambientColor += color;
+					ambientColor += float4(r, g, b, a);
 					totalAmbient += 1.0f;
 				}
 				m_pJedLevel->SurfaceUpdate(nSectorIndex, nSurfaceIndex, 0);
@@ -878,6 +903,7 @@ void CLightBakerDlg::DownloadAndApplyToLevel()
 			m_pJedLevel->SectorUpdate(nSectorIndex);
 		}
 	}
+	m_pVertexBuffer->Unmap();
 	m_pAccumulationBuffer->Unmap();
 }
 

@@ -71,7 +71,9 @@
     <None Include="BakeDirect.cso">
       <Filter>Resource Files\Shaders</Filter>
     </None>
-    <None Include="GenSmoothNormals.cso" />
+    <None Include="GenSmoothNormals.cso">
+      <Filter>Resource Files\Shaders</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Light Baker.h">
