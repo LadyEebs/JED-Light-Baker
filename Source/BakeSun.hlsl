@@ -20,7 +20,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID)
 		return;
 
 	const float3 vertex = aVertices[nVertexIndex].position.xyz;
-	const float3 normal = normalize(aVertexNormals[nVertexIndex].xyz);
+	const float3 normal = normalize((float3)aVertexNormals[nVertexIndex].xyz);
 
 	float3 sunPos = aLights[g_levelInfo.nSunLightIndex].position.xyz;
 	if (g_levelInfo.nAnchorLightIndex >= 0)

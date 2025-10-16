@@ -1,5 +1,10 @@
 #pragma once
 
+struct int4
+{
+	int x, y, z, w;
+};
+
 // 4 component vector
 struct float4
 {

@@ -24,7 +24,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID)
 		return;
 
 	const float3 vertex = aVertices[nVertexIndex].position.xyz;
-	const float3 normal = normalize(aVertexNormals[nVertexIndex].xyz);
+	const float3 normal = normalize((float3)aVertexNormals[nVertexIndex].xyz);
 	const float3x3 frame = GenerateTangentFrame(normal);
 	
 	float4 color = float4(0,0,0,0);

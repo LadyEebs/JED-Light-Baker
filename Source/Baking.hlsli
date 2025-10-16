@@ -113,7 +113,7 @@ StructuredBuffer<SSector>  aSectors       : register(t2);
 StructuredBuffer<SSurface> aSurfaces      : register(t3);
 StructuredBuffer<SVertex>  aVertices      : register(t4);
 StructuredBuffer<SLight>   aLights        : register(t5);
-StructuredBuffer<float4>   aVertexNormals : register(t6);
+StructuredBuffer<int4>     aVertexNormals : register(t6);
 StructuredBuffer<float4>   aVertexColors  : register(t7);
 
 RWStructuredBuffer<uint4> aVertexColorsWrite  : register(u0);

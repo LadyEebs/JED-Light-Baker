@@ -408,7 +408,8 @@ bool CLightBakerDlg::BakeLighting(uint32_t nInitBakeFlags)
 	UpdateLevelInfo();
 
 	// generate smooth normals
-	ComputeSmoothNormals();
+	if (m_nNormalSmoothingAngle > 0)
+		ComputeSmoothNormals();
 
 	if (m_nBakeFlags & ELightBake_Direct)
 		BakeDirectLighting();
@@ -562,7 +563,7 @@ void CLightBakerDlg::BuildGeometry()
 	SSector*  paSectors  = m_pSectorBuffer->Map<SSector>(D3D11_MAP_WRITE);
 	SSurface* paSurfaces = m_pSurfaceBuffer->Map<SSurface>(D3D11_MAP_WRITE);
 	SVertex*  paVertices = m_pVertexBuffer->Map<SVertex>(D3D11_MAP_WRITE);
-	float4*   paNormals  = m_pNormalBuffer->Map<float4>(D3D11_MAP_WRITE);
+	int4*   paNormals  = m_pNormalBuffer->Map<int4>(D3D11_MAP_WRITE);
 
 	uint32_t nSurfaceOffset = 0;
 	uint32_t nVertexOffset = 0;
@@ -668,11 +669,11 @@ void CLightBakerDlg::BuildGeometry()
 				pVertex->nLocalSurfaceIndex = nSurfaceIndex;
 				pVertex->nLocalVertexIndex = nVertexIndex;
 
-				float4* pNormal = &paNormals[nVertexOffset++];
-				pNormal->x = normal.x;
-				pNormal->y = normal.y;
-				pNormal->z = normal.z;
-				pNormal->w = 1.0f;
+				int4* pNormal = &paNormals[nVertexOffset++];
+				pNormal->x = (int)(normal.x * 1024.0);
+				pNormal->y = (int)(normal.y * 1024.0);
+				pNormal->z = (int)(normal.z * 1024.0);
+				pNormal->w = 1;
 			}
 			nSurfaceOffset = nAdjoinCursor + (nNumSurfaces - (nSolidCursor - nSurfaceBase + 1));
 			//++nSurfaceOffset;
@@ -825,7 +826,7 @@ void CLightBakerDlg::ComputeSmoothNormals()
 	m_pDeviceContextD3D->CSSetConstantBuffers(0, 1, apConstantBuffers);
 	m_pDeviceContextD3D->CSSetShaderResources(0, 5, apShaderResources);
 	m_pDeviceContextD3D->CSSetUnorderedAccessViews(0, 1, apUnorderedResources, 0);
-	m_pDeviceContextD3D->Dispatch((m_nTotalVertices + 15) / 16, (m_nTotalVertices + 15) / 16, 1);
+	m_pDeviceContextD3D->Dispatch((m_nNumSectors + 255)/256, 1, 1);//(m_nTotalVertices + 15) / 16, (m_nTotalVertices + 15) / 16, 1);
 
 	ID3D11Buffer* nullBuf[] = { nullptr };
 	ID3D11ShaderResourceView* nullSRV[] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
