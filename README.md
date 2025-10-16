@@ -33,15 +33,15 @@ All settings except position do nothing.
 - Smooth normals for curved surfaces
 
 # How it Works
-A barebones version of the level is upload to the GPU via Buffers/StructuredBuffers. This minimal version contains basic geometry (surface normal, vertex positions) and connectivity (adjoins).
+A barebones version of the level is uploaded to the GPU via Buffers/StructuredBuffers. This minimal version contains basic geometry (surface normal, vertex positions, fill colors) and connectivity (adjoins).
 
 Before lighting a shader runs through sectors, looking for overlapping vertices within the sector and neighboring sectors. Vertices are compared by distance and by normal difference, any pair that passes this test have their respective surface normals added to each other. A vertex pair might be processed multiple times but that only affects the magnitude so it's fine, the normal must be normalized when accessed anyway (to avoid having to write another pass outright). This produces smooth normals on curved surfaces.
 
 Then lighting is done in passes:
-- For the sun, the shader traces 1 ray per vertex towards the sun. If no hit is found, the vertex color is set to the sun color. This is the first stage so it ignores the "previous" result and simply replaces the color.
-- For direct lights, the shader traces batches of lights per vertex. Each thread corresponds to a light in the batch. The results are summed together into groupshared memory, and the final result is written back to the vertex by the first thread.
-- For sky/emissives, the shader traces batches of rays per vertex. Each thread corresponds to a ray in the batch. Like the direct light pass, the results are summed into groupshared memory and written back to the vertex by the first thread.
-- For indirect lithg, the process is the same as for sky and emissives, except the surface color is modulated by the previous bounce result. The shader outputs the current result (not accumulated) for the next bounce, and adds that contribution to the accumulation buffer. This propagates light across each bounce.
+- For the sun, dispatch a thread for each vertex and trace a ray towards the sun. If no hit is found, the vertex color is set to the sun color. This is the first stage so it ignores the "previous" result and simply replaces the color.
+- For direct lights, dispatch a group of threads per vertex, each thread processes a few lights depending on how many lights are in the scene, calculating lighting and accumulating the results locally and stored in groupshared memory, these are summed and the final result is written back to the vertex by the first thread.
+- For sky/emissives, we do the same thing but each thread processes a few rays oriented around the hemisphere rather than lights, accumulating the sky color or emissive surface color from the hit.
+- For indirect light we do the same as the sky except we ignore sky surfaces and modulate the surface color by the previous pass result. The shader does the same accumulation but also outputs the current result (not accumulated) for the next bounce. This propagates light across each bounce.
 
 Tracing is straightforward: start at a sector, check the surfaces for intersection (starting with adjoins so that they take precedent in case of numerical precision issues). If there's a hit, recruse if the hit is an adjoin, or end the trace and return the hit surface index. Collisions are basic polygon/plane tests, like in JED. The resulting hit point is used to do shading, either by grabbing the sun or sky colors (if the hit was a sky marked surface), or surface colors (if it's a emissive or solid), depending on the pass.
 
