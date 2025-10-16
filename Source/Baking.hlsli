@@ -106,6 +106,17 @@ cbuffer CBLevelInfo : register( b0 )
 	SLevelInfo g_levelInfo;
 };
 
+struct SVertexData
+{
+	int nVertexIndex;
+	int nSectorIndex;
+	int nLayerIndex;
+	int nSurfaceIndex;
+
+	float3 vertex;
+	float3 normal;
+};
+
 // Resources
 Buffer<uint>               aSectorMasks   : register(t0);
 Buffer<uint>               aLayerMasks    : register(t1);
@@ -116,8 +127,8 @@ StructuredBuffer<SLight>   aLights        : register(t5);
 StructuredBuffer<int4>     aVertexNormals : register(t6);
 StructuredBuffer<float4>   aVertexColors  : register(t7);
 
-RWStructuredBuffer<uint4> aVertexColorsWrite  : register(u0);
-RWStructuredBuffer<uint4> aVertexAccumulation : register(u1);
+RWStructuredBuffer<float4> aVertexColorsWrite  : register(u0);
+RWStructuredBuffer<float4> aVertexAccumulation : register(u1);
 
 // Test if a sector is in the sector bitmask
 bool IsSectorVisible(int nSectorIndex)
@@ -133,6 +144,28 @@ bool IsLayerVisible(int nLayerIndex)
 	const uint nBucketIndex = nLayerIndex / 32u;
 	const uint nBucketPlace = nLayerIndex % 32u;	
 	return (aLayerMasks[nBucketIndex] & (1u << nBucketPlace));
+}
+
+// Test if a surface is visible
+bool IsSurfaceVisible(int nSurfaceIndex)
+{
+	return (aSurfaces[nSurfaceIndex].nFlags & ESurface_IsVisible);
+}
+
+// Fetch the data for this vertex, return false if we should ignore the vertex
+bool GetVertexData(out SVertexData vertexData, int nVertexIndex)
+{
+	vertexData.nVertexIndex = nVertexIndex;
+	vertexData.nSectorIndex = aVertices[vertexData.nVertexIndex].nSectorIndex;	
+	vertexData.nLayerIndex = aSectors[vertexData.nSectorIndex].nLayerIndex;
+	vertexData. nSurfaceIndex = aVertices[vertexData.nVertexIndex].nSurfaceIndex;
+	vertexData.vertex = aVertices[vertexData.nVertexIndex].position.xyz;
+	vertexData.normal = normalize((float3)aVertexNormals[vertexData.nVertexIndex].xyz);
+
+	return (vertexData.nVertexIndex < g_levelInfo.nTotalVertices)
+		&& IsSectorVisible(vertexData.nSectorIndex)
+		&& IsLayerVisible(vertexData.nLayerIndex)
+		&& IsSurfaceVisible(vertexData.nSurfaceIndex);
 }
 
 // Generates an arbitrary tangent frame around a normal
@@ -361,26 +394,4 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 	}
 
 	return payload.nHitSurfaceIndex >= 0;
-}
-
-// Uses a spinlock to add results to a vertex (one for each channel)
-void WriteVertexLight(in RWStructuredBuffer<uint4> buffer, int nVertexIndex, float4 light)
-{
-	[unroll]
-	for (int nChannel = 0; nChannel < 4; ++nChannel)
-	{
-		uint nNewValue = asuint(light[nChannel]);
-		uint nTmp0 = 0;
-		uint nTmp1;
-
-		[allow_uav_condition]
-		while(true)
-		{
-			InterlockedCompareExchange(buffer[nVertexIndex][nChannel], nTmp0, nNewValue, nTmp1);
-			if (nTmp1 == nTmp0)
-				break;
-			nTmp0 = nTmp1;
-			nNewValue = asuint(light[nChannel] + asfloat(nTmp1));
-		}
-	}
 }

@@ -86,8 +86,8 @@ CLightBakerDlg::CLightBakerDlg(IJED* pJed, CWnd* pParent)
 	, m_bExtraLightEmissive(FALSE)
 	, m_bPhysicalFalloff(TRUE)
 	, m_bToneMap(FALSE)
-	, m_nSkyEmissiveRayCount(256)
-	, m_nIndirectRayCount(256)
+	, m_nSkyEmissiveRayCount(1024)
+	, m_nIndirectRayCount(1024)
 	, m_nIndirectBounces(3)
 	, m_nSunLightIndex(-1)
 	, m_nSkyLightIndex(-1)
@@ -206,15 +206,13 @@ void CLightBakerDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Check(pDX, IDC_CHECK_PHYSICAL_FALLOFF, m_bPhysicalFalloff);
 	DDX_Check(pDX, IDC_CHECK_TONE_MAP, m_bToneMap);
 
-	DDX_Text(pDX, IDC_RAY_EDIT, m_nSkyEmissiveRayCount);
-	DDX_Text(pDX, IDC_INDIRECT_RAY_EDIT, m_nIndirectRayCount);
 	DDX_Text(pDX, IDC_BOUNCES_EDIT, m_nIndirectBounces);
 
-	DDV_MinMaxInt(pDX, m_nSkyEmissiveRayCount, 16, 1024);
-	DDV_MinMaxInt(pDX, m_nIndirectRayCount, 16, 1024);
 	DDV_MinMaxInt(pDX, m_nIndirectBounces, 1, 10);
 	DDX_Text(pDX, IDC_NORMAL_SMOOTH_EDIT, m_nNormalSmoothingAngle);
 	DDV_MinMaxInt(pDX, m_nNormalSmoothingAngle, 0, 180);
+	DDX_Control(pDX, IDC_COMBO_RAYS, m_skyEmissionRayCombo);
+	DDX_Control(pDX, IDC_COMBO_INDIRECT_RAYS, m_indirectRaysCombo);
 }
 
 BOOL CLightBakerDlg::OnInitDialog()
@@ -224,25 +222,22 @@ BOOL CLightBakerDlg::OnInitDialog()
 	SetWindowPos(&wndTop, 0, 0, 0, 0,
 					SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 
-	m_nIndirectRayCount = 1024;
+	m_skyEmissionRayCombo.AddString(_T("256"));
+	m_skyEmissionRayCombo.AddString(_T("512"));
+	m_skyEmissionRayCombo.AddString(_T("1024"));
+	m_skyEmissionRayCombo.SetCurSel(2);
 	m_nSkyEmissiveRayCount = 1024;
+
+	m_indirectRaysCombo.AddString(_T("256"));
+	m_indirectRaysCombo.AddString(_T("512"));
+	m_indirectRaysCombo.AddString(_T("1024"));
+	m_indirectRaysCombo.SetCurSel(2);
+	m_nIndirectRayCount = 1024;
+
 	m_nIndirectBounces = 3;
+
 	m_nNormalSmoothingAngle = 35;
 	UpdateData(FALSE);
-
-	CSpinButtonCtrl* pSkyEmissiveRaySpin = (CSpinButtonCtrl*)GetDlgItem(IDC_RAY_SPIN);
-	if (pSkyEmissiveRaySpin)
-	{
-		pSkyEmissiveRaySpin->SetRange(16, 4096);
-		pSkyEmissiveRaySpin->SetPos(m_nSkyEmissiveRayCount);
-	}
-
-	CSpinButtonCtrl* pIndirectRaySpin = (CSpinButtonCtrl*)GetDlgItem(IDC_INDIRECT_RAY_SPIN);
-	if (pIndirectRaySpin)
-	{
-		pIndirectRaySpin->SetRange(16, 4096);
-		pIndirectRaySpin->SetPos(m_nIndirectRayCount);
-	}
 
 	CSpinButtonCtrl* pIndirectBouncesSpin = (CSpinButtonCtrl*)GetDlgItem(IDC_BOUNCES_SPIN);
 	if (pIndirectBouncesSpin)
@@ -265,6 +260,8 @@ BEGIN_MESSAGE_MAP(CLightBakerDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BUTTON_BAKE_ALL, &CLightBakerDlg::OnBnClickedBakeAll)
 	ON_BN_CLICKED(IDC_BUTTON_BAKE_SEL, &CLightBakerDlg::OnBnClickedBakeSelected)
 	ON_BN_CLICKED(IDC_BUTTON_BAKE_LAYERS, &CLightBakerDlg::OnBnClickedBakeVisibleLayers)
+	ON_CBN_SELCHANGE(IDC_COMBO_RAYS, &CLightBakerDlg::OnCbnSelchangeComboRays)
+	ON_CBN_SELCHANGE(IDC_COMBO_INDIRECT_RAYS, &CLightBakerDlg::OnCbnSelchangeComboIndirectRays)
 END_MESSAGE_MAP()
 
 afx_msg void CLightBakerDlg::OnBnClickedBakeAll()
@@ -283,6 +280,26 @@ afx_msg void CLightBakerDlg::OnBnClickedBakeVisibleLayers()
 {
 	UpdateData(TRUE);
 	BakeLighting(ELightBake_VisibleLayers);
+}
+
+afx_msg void CLightBakerDlg::OnCbnSelchangeComboRays()
+{
+	int sel = m_skyEmissionRayCombo.GetCurSel();
+	if (sel != CB_ERR)
+	{
+		static const int values[] = { 256, 512, 1024 };
+		m_nSkyEmissiveRayCount = values[sel];
+	}
+}
+
+afx_msg void CLightBakerDlg::OnCbnSelchangeComboIndirectRays()
+{
+	int sel = m_indirectRaysCombo.GetCurSel();
+	if (sel != CB_ERR)
+	{
+		static const int values[] = { 256, 512, 1024 };
+		m_nIndirectRayCount = values[sel];
+	}
 }
 
 bool CLightBakerDlg::IsSurfaceVisible(int nSectorIndex, int nSurfaceIndex) const
@@ -779,10 +796,10 @@ void CLightBakerDlg::BakeDirectLighting()
 		DispatchBakePass((m_nTotalVertices + 255) / 256, 1, m_pBakeSunShader, m_pColorLastResultBuffer, m_pColorCurrResultBuffer);
 	
 	if (m_nBakeFlags & ELightBake_Lights)
-		DispatchBakePass((m_nTotalVertices + 15) / 16, (m_nNumLights + 15) / 16, m_pBakeDirectShader, m_pColorLastResultBuffer, m_pColorCurrResultBuffer);
+		DispatchBakePass(m_nTotalVertices, 1, m_pBakeDirectShader, m_pColorLastResultBuffer, m_pColorCurrResultBuffer);
 	
 	if ((m_nBakeFlags & ELightBake_Sky) || (m_nBakeFlags & ELightBake_Emissive))
-		DispatchBakePass((m_nTotalVertices + 15) / 16, (m_nSkyEmissiveRayCount + 15) / 16, m_pBakeSkyEmissiveShader, m_pColorLastResultBuffer, m_pColorCurrResultBuffer);
+		DispatchBakePass(m_nTotalVertices, 1, m_pBakeSkyEmissiveShader, m_pColorLastResultBuffer, m_pColorCurrResultBuffer);
 }
 
 void CLightBakerDlg::BakeIndirectLighting()
@@ -798,7 +815,7 @@ void CLightBakerDlg::BakeIndirectLighting()
 		// clear the buffer for the next bounce accumulation
 		pWriteBuffer->ClearUAV();
 
-		DispatchBakePass((m_nTotalVertices + 15) / 16, (m_nIndirectRayCount + 15) / 16, m_pBakeIndirectShader, pReadBuffer, pWriteBuffer);
+		DispatchBakePass(m_nTotalVertices, 1, m_pBakeIndirectShader, pReadBuffer, pWriteBuffer);
 
 		std::swap(pReadBuffer, pWriteBuffer);
 	}

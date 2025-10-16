@@ -3,45 +3,29 @@
 [numthreads(256, 1, 1)]
 void main(int3 dispatchThreadID : SV_DispatchThreadID)
 {
-	int nVertexIndex = dispatchThreadID.x;
-	if (nVertexIndex >= g_levelInfo.nTotalVertices)
+	SVertexData vertexData;
+	if (!GetVertexData(vertexData, dispatchThreadID.x))
 		return;
-			
-	int nSectorIndex = aVertices[nVertexIndex].nSectorIndex;	
-	if (!IsSectorVisible(nSectorIndex))
-		return;
-		
-	int nLayerIndex = aSectors[nSectorIndex].nLayerIndex;
-	if (!IsLayerVisible(nLayerIndex))
-		return;
-
-	int nSurfaceIndex = aVertices[nVertexIndex].nSurfaceIndex;
-	if(!(aSurfaces[nSurfaceIndex].nFlags & ESurface_IsVisible))
-		return;
-
-	const float3 vertex = aVertices[nVertexIndex].position.xyz;
-	const float3 normal = normalize((float3)aVertexNormals[nVertexIndex].xyz);
 
 	float3 sunPos = aLights[g_levelInfo.nSunLightIndex].position.xyz;
 	if (g_levelInfo.nAnchorLightIndex >= 0)
 		sunPos -= aLights[g_levelInfo.nAnchorLightIndex].position.xyz;
 
 	float3 rayDir    = normalize(sunPos.xyz);
-	float3 rayTarget = kSkyDistance * rayDir + vertex;
+	float3 rayTarget = kSkyDistance * rayDir + vertexData.vertex;
 	
 	float4 color = float4(0,0,0,0);
-	float ndotl      = dot(normal, rayDir);
-	
+	float ndotl  = dot(vertexData.normal, rayDir);	
 	if (ndotl > 0)
 	{
 		SRayPayload payload = (SRayPayload)0;
 		payload.attenuation = float4(1,1,1,1);
 
-		bool bRayHit = TraceRay(payload, nSectorIndex, vertex + rayDir * kRayBias, rayTarget);
+		bool bRayHit = TraceRay(payload, vertexData.nSectorIndex, vertexData.vertex + rayDir * kRayBias, rayTarget);
 		if (bRayHit && (aSurfaces[payload.nHitSurfaceIndex].nFlags & ESurface_IsSky))
 			color = ndotl * payload.attenuation * aLights[g_levelInfo.nSunLightIndex].color;
-	}
 	
-	// Write the result
-	aVertexAccumulation[nVertexIndex] = asuint(color);
+		// sun is the first pass so don't bother reading the previous result
+		aVertexAccumulation[vertexData.nVertexIndex] = color;
+	}
 }

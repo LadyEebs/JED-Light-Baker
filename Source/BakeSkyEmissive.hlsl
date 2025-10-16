@@ -1,58 +1,67 @@
 #include "Baking.hlsli"
 
-[numthreads(16, 16, 1)]
-void main(int3 dispatchThreadID : SV_DispatchThreadID)
+#define RAYS_PER_GROUP 256
+
+groupshared float4 g_sharedAcc[RAYS_PER_GROUP];
+
+[numthreads(RAYS_PER_GROUP, 1, 1)]
+void main(int3 dispatchThreadID : SV_DispatchThreadID,
+		  int3 groupThreadID    : SV_GroupThreadID,
+		  int3 groupID          : SV_GroupID)
 {
-	int nVertexIndex = dispatchThreadID.x;
-	if (nVertexIndex >= g_levelInfo.nTotalVertices)
+	SVertexData vertexData;
+	if (!GetVertexData(vertexData, groupID.x))
 		return;
 
-	int nRayIndex = dispatchThreadID.y;
-	if (nRayIndex >= g_levelInfo.nSkyEmissiveRays)
-		return;
+	const float3x3 frame = GenerateTangentFrame(vertexData.normal);
 
-	int nSectorIndex = aVertices[nVertexIndex].nSectorIndex;	
-	if (!IsSectorVisible(nSectorIndex))
-		return;
-		
-	int nLayerIndex = aSectors[nSectorIndex].nLayerIndex;
-	if (!IsLayerVisible(nLayerIndex))
-		return;
-
-	int nSurfaceIndex = aVertices[nVertexIndex].nSurfaceIndex;
-	if(!(aSurfaces[nSurfaceIndex].nFlags & ESurface_IsVisible))
-		return;
-
-	const float3 vertex = aVertices[nVertexIndex].position.xyz;
-	const float3 normal = normalize((float3)aVertexNormals[nVertexIndex].xyz);
-	const float3x3 frame = GenerateTangentFrame(normal);
-	
-	float4 color = float4(0,0,0,0);
-	float3 rayDir = GenRay(nRayIndex, g_levelInfo.nSkyEmissiveRays);
-	rayDir = mul(rayDir, frame);
-	
-	const float3 rayTarget = kSkyDistance * rayDir + vertex;
-
-	SRayPayload payload = (SRayPayload)0;
-	payload.attenuation = float4(1,1,1,1);
-
-	bool bRayHit = TraceRay(payload, nSectorIndex, vertex + rayDir * kRayBias, rayTarget);
-	if (bRayHit)
+	// each thread processes g_levelInfo.nSkyEmissiveRays / RAYS_PER_GROUP rays
+	float4 localAcc = float4(0,0,0,0);
+	for(int nRayIndex = groupThreadID.x; nRayIndex < g_levelInfo.nSkyEmissiveRays; nRayIndex += RAYS_PER_GROUP)
 	{
-		uint nSurfaceFlags = aSurfaces[payload.nHitSurfaceIndex].nFlags;
-		if ((g_levelInfo.nBakeFlags & ELightBake_Sky) && (nSurfaceFlags & ESurface_IsSky))
+		float3 rayDir = GenRay(nRayIndex, g_levelInfo.nSkyEmissiveRays);
+		rayDir = mul(rayDir, frame);
+
+		const float3 rayTarget = kSkyDistance * rayDir + vertexData.vertex;
+
+		SRayPayload payload = (SRayPayload)0;
+		payload.attenuation = float4(1,1,1,1);
+
+		bool bRayHit = TraceRay(payload, vertexData.nSectorIndex, vertexData.vertex + rayDir * kRayBias, rayTarget);
+		if(bRayHit)
 		{
-			color = aLights[g_levelInfo.nSkyLightIndex].color;
-		}
-		else if ((g_levelInfo.nBakeFlags & ELightBake_Emissive) && (nSurfaceFlags & ESurface_IsVisible))
-		{
-			color = aSurfaces[payload.nHitSurfaceIndex].emissive;
+			float4 color = float4(0,0,0,0);
+			uint hitFlags = aSurfaces[payload.nHitSurfaceIndex].nFlags;
+			if((g_levelInfo.nBakeFlags & ELightBake_Sky) && (hitFlags & ESurface_IsSky))
+			{
+				color = aLights[g_levelInfo.nSkyLightIndex].color;
+			}
+			else if((g_levelInfo.nBakeFlags & ELightBake_Emissive) && (hitFlags & ESurface_IsVisible))
+			{
+				color = aSurfaces[payload.nHitSurfaceIndex].emissive;
+			}
+
+			localAcc += color * payload.attenuation;
 		}
 	}
-	color *= payload.attenuation;
 
-	color /= float(g_levelInfo.nSkyEmissiveRays);
+	// write the result to shared memory
+	g_sharedAcc[groupThreadID.x] = localAcc;
+	GroupMemoryBarrierWithGroupSync();
 
-	// Accumulate total
-	WriteVertexLight(aVertexAccumulation, nVertexIndex, color);
+	// tree reduction in shared memory
+	for(int stride = RAYS_PER_GROUP / 2; stride > 0; stride >>= 1)
+	{
+		if(groupThreadID.x < stride)
+			g_sharedAcc[groupThreadID.x] += g_sharedAcc[groupThreadID.x + stride];
+		GroupMemoryBarrierWithGroupSync();
+	}
+
+	// only thread 0 writes final result for this vertex
+	if(groupThreadID.x == 0)
+	{
+		float4 result = g_sharedAcc[0] / (float)g_levelInfo.nSkyEmissiveRays;
+		float4 prevResult = aVertexAccumulation[vertexData.nVertexIndex];
+		aVertexAccumulation[vertexData.nVertexIndex] = prevResult + result;
+	}
 }

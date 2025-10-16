@@ -219,6 +219,9 @@ protected:
 
 public:
 	// MFC GUI stuff
+	CComboBox m_skyEmissionRayCombo;
+	CComboBox m_indirectRaysCombo;
+
 	BOOL m_bBakePointLights;
 	BOOL m_bBakeSunLight;
 	BOOL m_bBakeSkyLight;
@@ -237,6 +240,8 @@ public:
 	afx_msg void OnBnClickedBakeAll();
 	afx_msg void OnBnClickedBakeSelected();
 	afx_msg void OnBnClickedBakeVisibleLayers();
+	afx_msg void OnCbnSelchangeComboRays();
+	afx_msg void OnCbnSelchangeComboIndirectRays();
 
 private:
 	// main entry point for baking process, everything below assumes flags etc are set
