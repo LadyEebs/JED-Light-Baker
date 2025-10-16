@@ -31,7 +31,7 @@ static const float kSurfaceAlpha = 90.0/255.0;
 static const float kRayBias = -1e-4;
 
 // maximum number of adjoins to cross for a given ray (puts an upper bound on recursions for safety)
-static const int kMaxRecursion = 1024; // should be more than enough?
+static const int kMaxRecursion = 256; // should be more than enough?
 
 // Ray payload, filled on hit
 struct SRayPayload
