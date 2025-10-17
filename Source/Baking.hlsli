@@ -380,11 +380,15 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 			if (nSurfaceFlags & ESurface_IsVisible)
 			{
 				float4 albedo = aSurfaces[nHitSurfaceIndex].albedo;
+                float4 emissive = aSurfaces[nHitSurfaceIndex].emissive;
 				if (nSurfaceFlags & ESurface_IsTranslucent)
-					albedo *= kSurfaceAlpha;
-
+                {
+                    albedo *= kSurfaceAlpha;
+                    emissive *= kSurfaceAlpha;
+                }
+                
 				const float4 surfaceLight = InterpolateSurfaceLight(nHitSurfaceIndex, hitPos);
-				payload.reflection += albedo * payload.attenuation * surfaceLight;
+                payload.reflection += (albedo * surfaceLight + emissive) * payload.attenuation;
 
 				if (nSurfaceFlags & ESurface_IsTranslucent)
 					payload.attenuation *= albedo + (1.0 - kSurfaceAlpha);
