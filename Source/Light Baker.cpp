@@ -6,6 +6,18 @@
 #define new DEBUG_NEW
 #endif
 
+static constexpr int kDefIndirectBounces = 3;
+static constexpr int kMinIndirectBounces = 1;
+static constexpr int kMaxIndirectBounces = 5;
+
+static constexpr int kDefNormalSmoothAngle = 35;
+static constexpr int kMinNormalSmoothAngle = 0;
+static constexpr int kMaxNormalSmoothAngle = 180;
+
+static constexpr const wchar_t* ksRaysPerVertex[] = { _T("256"), _T("512"), _T("1024")};
+static constexpr int kRaysPerVertex[] = { 256, 512, 1024 };
+static constexpr int kDefRaysPerVertexIdx = 2;
+
 float3 SColormap::GetColor(uint32_t nIndex, int nLightLevel) const
 {
 	if (nLightLevel >= 0)
@@ -86,9 +98,9 @@ CLightBakerDlg::CLightBakerDlg(IJED* pJed, CWnd* pParent)
 	, m_bExtraLightEmissive(FALSE)
 	, m_bPhysicalFalloff(TRUE)
 	, m_bToneMap(FALSE)
-	, m_nSkyEmissiveRayCount(1024)
-	, m_nIndirectRayCount(1024)
-	, m_nIndirectBounces(3)
+	, m_nSkyEmissiveRayCount(kRaysPerVertex[kDefRaysPerVertexIdx])
+	, m_nIndirectRayCount(kRaysPerVertex[kDefRaysPerVertexIdx])
+	, m_nIndirectBounces(kDefIndirectBounces)
 	, m_nSunLightIndex(-1)
 	, m_nSkyLightIndex(-1)
 	, m_nAnchorLightIndex(-1)
@@ -99,7 +111,7 @@ CLightBakerDlg::CLightBakerDlg(IJED* pJed, CWnd* pParent)
 	, m_nNumLayers(0)
 	, m_nTotalSurfaces(0)
 	, m_nTotalVertices(0)
-	, m_nNormalSmoothingAngle(35)
+	, m_nNormalSmoothingAngle(kDefNormalSmoothAngle)
 {
 }
 
@@ -208,9 +220,9 @@ void CLightBakerDlg::DoDataExchange(CDataExchange* pDX)
 
 	DDX_Text(pDX, IDC_BOUNCES_EDIT, m_nIndirectBounces);
 
-	DDV_MinMaxInt(pDX, m_nIndirectBounces, 1, 10);
+	DDV_MinMaxInt(pDX, m_nIndirectBounces, kMinIndirectBounces, kMaxIndirectBounces);
 	DDX_Text(pDX, IDC_NORMAL_SMOOTH_EDIT, m_nNormalSmoothingAngle);
-	DDV_MinMaxInt(pDX, m_nNormalSmoothingAngle, 0, 180);
+	DDV_MinMaxInt(pDX, m_nNormalSmoothingAngle, kMinNormalSmoothAngle, kMaxNormalSmoothAngle);
 	DDX_Control(pDX, IDC_COMBO_RAYS, m_skyEmissionRayCombo);
 	DDX_Control(pDX, IDC_COMBO_INDIRECT_RAYS, m_indirectRaysCombo);
 }
@@ -222,34 +234,31 @@ BOOL CLightBakerDlg::OnInitDialog()
 	SetWindowPos(&wndTop, 0, 0, 0, 0,
 					SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 
-	m_skyEmissionRayCombo.AddString(_T("256"));
-	m_skyEmissionRayCombo.AddString(_T("512"));
-	m_skyEmissionRayCombo.AddString(_T("1024"));
-	m_skyEmissionRayCombo.SetCurSel(2);
-	m_nSkyEmissiveRayCount = 1024;
+	for (auto name : ksRaysPerVertex)
+		m_skyEmissionRayCombo.AddString(name);
+	m_skyEmissionRayCombo.SetCurSel(kDefRaysPerVertexIdx);
+	m_nSkyEmissiveRayCount = kRaysPerVertex[kDefRaysPerVertexIdx];
 
-	m_indirectRaysCombo.AddString(_T("256"));
-	m_indirectRaysCombo.AddString(_T("512"));
-	m_indirectRaysCombo.AddString(_T("1024"));
-	m_indirectRaysCombo.SetCurSel(2);
-	m_nIndirectRayCount = 1024;
+	for (auto name : ksRaysPerVertex)
+		m_indirectRaysCombo.AddString(name);
+	m_indirectRaysCombo.SetCurSel(kDefRaysPerVertexIdx);
+	m_nIndirectRayCount = kRaysPerVertex[kDefRaysPerVertexIdx];
 
-	m_nIndirectBounces = 3;
-
-	m_nNormalSmoothingAngle = 35;
+	m_nIndirectBounces = kDefIndirectBounces;
+	m_nNormalSmoothingAngle = kDefNormalSmoothAngle;
 	UpdateData(FALSE);
 
 	CSpinButtonCtrl* pIndirectBouncesSpin = (CSpinButtonCtrl*)GetDlgItem(IDC_BOUNCES_SPIN);
 	if (pIndirectBouncesSpin)
 	{
-		pIndirectBouncesSpin->SetRange(1, 5);
+		pIndirectBouncesSpin->SetRange(kMinIndirectBounces, kMaxIndirectBounces);
 		pIndirectBouncesSpin->SetPos(m_nIndirectBounces);
 	}
 
 	CSpinButtonCtrl* pNormalSmoothSpin = (CSpinButtonCtrl*)GetDlgItem(IDC_NORMAL_SMOOTH_SPIN);
 	if (pNormalSmoothSpin)
 	{
-		pNormalSmoothSpin->SetRange(0, 180);
+		pNormalSmoothSpin->SetRange(kMinNormalSmoothAngle, kMaxNormalSmoothAngle);
 		pNormalSmoothSpin->SetPos(m_nNormalSmoothingAngle);
 	}
 
@@ -287,8 +296,7 @@ afx_msg void CLightBakerDlg::OnCbnSelchangeComboRays()
 	int sel = m_skyEmissionRayCombo.GetCurSel();
 	if (sel != CB_ERR)
 	{
-		static const int values[] = { 256, 512, 1024 };
-		m_nSkyEmissiveRayCount = values[sel];
+		m_nSkyEmissiveRayCount = kRaysPerVertex[sel];
 	}
 }
 
@@ -297,8 +305,7 @@ afx_msg void CLightBakerDlg::OnCbnSelchangeComboIndirectRays()
 	int sel = m_indirectRaysCombo.GetCurSel();
 	if (sel != CB_ERR)
 	{
-		static const int values[] = { 256, 512, 1024 };
-		m_nIndirectRayCount = values[sel];
+		m_nIndirectRayCount = kRaysPerVertex[sel];
 	}
 }
 
