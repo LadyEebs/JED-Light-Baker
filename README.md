@@ -8,6 +8,12 @@ JED/SED Light Baker Plugin. Bakes lighting using crude/simple GPU accelerated ra
 - A copy of Jedi Knight/Mysteries of the Sith
 - A DX11 Capable PC
 
+# Download & Installation
+Head over to the [Releases]https://github.com/LadyEebs/JED-Light-Baker/releases page, and download the .zip of the latest version (or version of your choosing). The zip contains the precompiled .dll plugin, while the source contains the source coude used to build it.
+Once downloaded, head over to your editor installs plugins directory (ex: jed/plugins/), and extract the dll from the zip into that directory.
+
+If done successfully the Light Baker will show up in the list of plugins in Jed.
+
 # Usage
 ## Sunlight
 To create a sun, place a light and set flag "0x2" (sun flag). This light controls the sun direction, color and intensity.
