@@ -4,9 +4,11 @@ JED/SED Light Baker Plugin. Bakes lighting using crude/simple GPU accelerated ra
 <img width="714" height="609" alt="image" src="https://github.com/user-attachments/assets/99224f8e-f4dc-4e10-942b-27975e5a5cdf" />
 
 # Requirements
-- JED/NJED/SED level editor of choice (note some of them have bugs with RGB lighting)
-- A copy of Jedi Knight/Mysteries of the Sith
+- A Jed 0.951 compatible level editor (JED/ZEDNJED/SED)
+- A copy of Jedi Knight/Mysteries of the Sith/Indiana Jones and the Infernal Machine
 - A DX11 Capable PC
+
+**Important** If you want to use RGB lighting, it's recommended to use a newer editor, like the latest NJed or SED, which fixes a bug in Jed's plugin system that caused lighting to turn teal.
 
 # Download & Installation
 [Download the latest](https://github.com/LadyEebs/JED-Light-Baker/releases/download/v1.0.0-beta.1/Light.Baker.zip) or head over to the [Releases](https://github.com/LadyEebs/JED-Light-Baker/releases) page to download the version of your choosing.
