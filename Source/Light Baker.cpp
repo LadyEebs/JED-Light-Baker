@@ -997,6 +997,8 @@ SColormap* CLightBakerDlg::LoadColormap(const wchar_t* sFileName)
 	delete[] paColors;
 	delete[] paLightLevels;
 
+	m_pJed->CloseFile(nFileHandle);
+
 	return &colormap;
 }
 
@@ -1061,6 +1063,9 @@ uint32_t CLightBakerDlg::LoadMaterialFillColor(const wchar_t* sFileName, const S
 		}
 	}
 	m_materialColorCache.emplace(sFileName, recordHeader.nFillColor);
+
+	m_pJed->CloseFile(nFileHandle);
+
 	return recordHeader.nFillColor;
 }
 
