@@ -4,13 +4,29 @@
 #include "GpuBuffer.h"
 
 // todo: move it out of the constructor is probably a good idea
-CGpuBuffer::CGpuBuffer(ID3D11Device* pDevice, ID3D11DeviceContext* pDeviceContext, int numElements, int stride, DXGI_FORMAT format, int writeable, int readable, D3D11_RESOURCE_MISC_FLAG miscFlags)
-	: m_pDevice(pDevice)
-	, m_pDeviceContext(pDeviceContext)
+CGpuBuffer::CGpuBuffer()
+	: m_pDevice(nullptr)
+	, m_pDeviceContext(nullptr)
 	, m_pBuffer(nullptr)
 	, m_pShaderView(nullptr)
 	, m_pUnorderedView(nullptr)
 {
+	memset(&mapped, 0, sizeof(mapped));
+}
+
+CGpuBuffer::~CGpuBuffer()
+{
+	Release();
+}
+
+bool CGpuBuffer::Create(ID3D11Device* pDevice, ID3D11DeviceContext* pDeviceContext, int numElements, int stride, DXGI_FORMAT format, int writeable, int readable, D3D11_RESOURCE_MISC_FLAG miscFlags)
+{
+	m_pDevice = pDevice;
+	m_pDeviceContext = pDeviceContext;
+	m_pBuffer = nullptr;
+	m_pShaderView = nullptr;
+	m_pUnorderedView = nullptr;
+
 	memset(&mapped, 0, sizeof(mapped));
 
 	D3D11_BUFFER_DESC desc;
@@ -23,6 +39,9 @@ CGpuBuffer::CGpuBuffer(ID3D11Device* pDevice, ID3D11DeviceContext* pDeviceContex
 	if (miscFlags & D3D11_RESOURCE_MISC_BUFFER_STRUCTURED)
 		desc.StructureByteStride = stride;
 	pDevice->CreateBuffer(&desc, NULL, &m_pBuffer);
+
+	if (!m_pBuffer)
+		return false;
 
 	D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc;
 	ZeroMemory(&srvDesc, sizeof(srvDesc));
@@ -41,6 +60,9 @@ CGpuBuffer::CGpuBuffer(ID3D11Device* pDevice, ID3D11DeviceContext* pDeviceContex
 	}
 	pDevice->CreateShaderResourceView(m_pBuffer, &srvDesc, &m_pShaderView);
 
+	if (!m_pShaderView)
+		return false;
+
 	if (writeable)
 	{
 		D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc;
@@ -58,10 +80,14 @@ CGpuBuffer::CGpuBuffer(ID3D11Device* pDevice, ID3D11DeviceContext* pDeviceContex
 			uavDesc.Buffer.NumElements = numElements;
 		}
 		pDevice->CreateUnorderedAccessView(m_pBuffer, &uavDesc, &m_pUnorderedView);
+		if (!m_pUnorderedView)
+			return false;
 	}
+
+	return true;
 }
 
-CGpuBuffer::~CGpuBuffer()
+void CGpuBuffer::Release()
 {
 	if (m_pBuffer)
 		m_pBuffer->Release();

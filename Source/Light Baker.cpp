@@ -81,16 +81,6 @@ CLightBakerDlg::CLightBakerDlg(IJED* pJed, CWnd* pParent)
 	, m_pLastJedLevel(nullptr)
 	, m_pDeviceD3D(nullptr)
 	, m_pDeviceContextD3D(nullptr)
-	, m_pSelectionBitmaskBuffer(nullptr)
-	, m_pLayerBitmaskBuffer(nullptr)
-	, m_pSectorBuffer(nullptr)
-	, m_pSurfaceBuffer(nullptr)
-	, m_pLightBuffer(nullptr)
-	, m_pVertexBuffer(nullptr)
-	, m_pNormalBuffer(nullptr)
-	, m_pAccumulationBuffer(nullptr)
-	, m_pColorCurrResultBuffer(nullptr)
-	, m_pColorLastResultBuffer(nullptr)
 	, m_pBakeSunShader(nullptr)
 	, m_pBakeDirectShader(nullptr)
 	, m_pBakeSkyEmissiveShader(nullptr)
@@ -489,70 +479,74 @@ bool CLightBakerDlg::LoadEmbeddedShader(UINT resourceID, const void** data, DWOR
 void CLightBakerDlg::AllocateBuffers()
 {
 	// todo: move the creation of the buffer data out of the constructor and check for failures
-	m_pSelectionBitmaskBuffer = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, (m_nNumSectors + 31) / 32, sizeof(uint32_t), DXGI_FORMAT_R32_UINT, 0, 1, (D3D11_RESOURCE_MISC_FLAG)0);
-	m_pLayerBitmaskBuffer     = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, (m_nNumLayers + 31) / 32, sizeof(uint32_t), DXGI_FORMAT_R32_UINT, 0, 1, (D3D11_RESOURCE_MISC_FLAG)0);
-	m_pSectorBuffer           = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, m_nNumSectors,             sizeof(SSector), DXGI_FORMAT_UNKNOWN, 0, 1, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
-	m_pSurfaceBuffer          = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalSurfaces,          sizeof(SSurface), DXGI_FORMAT_UNKNOWN, 0, 1, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
-	m_pVertexBuffer           = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(SVertex), DXGI_FORMAT_UNKNOWN, 0, 1, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
-	m_pNormalBuffer           = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(float4), DXGI_FORMAT_UNKNOWN, 1, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
-	m_pLightBuffer            = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, m_nNumLights,              sizeof(SLight), DXGI_FORMAT_UNKNOWN, 0, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
-	m_pColorLastResultBuffer  = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(float4), DXGI_FORMAT_UNKNOWN, 1, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
-	m_pColorCurrResultBuffer  = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(float4), DXGI_FORMAT_UNKNOWN, 1, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
-	m_pAccumulationBuffer     = new CGpuBuffer(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(float4), DXGI_FORMAT_UNKNOWN, 1, 1, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
+	m_selectionBitmaskBuffer.Create(m_pDeviceD3D, m_pDeviceContextD3D, (m_nNumSectors + 31) / 32, sizeof(uint32_t), DXGI_FORMAT_R32_UINT, 0, 1, (D3D11_RESOURCE_MISC_FLAG)0);
+	m_layerBitmaskBuffer    .Create(m_pDeviceD3D, m_pDeviceContextD3D, (m_nNumLayers + 31) / 32, sizeof(uint32_t), DXGI_FORMAT_R32_UINT, 0, 1, (D3D11_RESOURCE_MISC_FLAG)0);
+	m_sectorBuffer          .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nNumSectors,             sizeof(SSector), DXGI_FORMAT_UNKNOWN, 0, 1, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
+	m_surfaceBuffer         .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalSurfaces,          sizeof(SSurface), DXGI_FORMAT_UNKNOWN, 0, 1, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
+	m_vertexBuffer          .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(SVertex), DXGI_FORMAT_UNKNOWN, 0, 1, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
+	m_normalBuffer          .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(float4), DXGI_FORMAT_UNKNOWN, 1, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
+	m_lightBuffer           .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nNumLights,              sizeof(SLight), DXGI_FORMAT_UNKNOWN, 0, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
+	m_colorLastResultBuffer .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(float4), DXGI_FORMAT_UNKNOWN, 1, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
+	m_colorCurrResultBuffer .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(float4), DXGI_FORMAT_UNKNOWN, 1, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
+	m_accumulationBuffer    .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(float4), DXGI_FORMAT_UNKNOWN, 1, 1, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
 
 	// clear the color buffers before we render anything to them
-	m_pColorLastResultBuffer->ClearUAV();
-	m_pColorCurrResultBuffer->ClearUAV();
-	m_pAccumulationBuffer->ClearUAV();
+	m_colorLastResultBuffer.ClearUAV();
+	m_colorCurrResultBuffer.ClearUAV();
+	m_accumulationBuffer.ClearUAV();
 }
 
 void CLightBakerDlg::FreeBuffers()
 {
-	delete m_pSelectionBitmaskBuffer;
-	delete m_pLayerBitmaskBuffer;
-	delete m_pSectorBuffer;
-	delete m_pSurfaceBuffer;
-	delete m_pVertexBuffer;
-	delete m_pLightBuffer;
-	delete m_pNormalBuffer;
-	delete m_pColorLastResultBuffer;
-	delete m_pColorCurrResultBuffer;
-	delete m_pAccumulationBuffer;
+	m_selectionBitmaskBuffer.Release();
+	m_layerBitmaskBuffer.Release();
+	m_sectorBuffer.Release();
+	m_surfaceBuffer.Release();
+	m_vertexBuffer.Release();
+	m_lightBuffer.Release();
+	m_normalBuffer.Release();
+	m_colorLastResultBuffer.Release();
+	m_colorCurrResultBuffer.Release();
+	m_accumulationBuffer.Release();
 }
 
 void CLightBakerDlg::BuildSelectionBitmask()
 {
-	uint32_t* paSelectionMask = m_pSelectionBitmaskBuffer->Map<uint32_t>(D3D11_MAP_WRITE);
-	memset(paSelectionMask, 0, sizeof(uint32_t) * ((m_nNumSectors + 31) / 32));
+	CGpuBufferMapping<uint32_t> selectionMask(&m_selectionBitmaskBuffer, D3D11_MAP_WRITE);
+	if (!selectionMask)
+	{
+		PrintMessage(m_pJed, msg_error, "Failed to map selection bitmask buffer for upload.");
+		return;
+	}
+
+	memset(selectionMask.RawData(), 0, sizeof(uint32_t) * ((m_nNumSectors + 31) / 32));
 	for (int nQueuedSectorIndex = 0; nQueuedSectorIndex < m_nNumQueuedSectors; ++nQueuedSectorIndex)
 	{
 		const int nSectorIndex = (m_nBakeFlags & ELightBake_Selected) ? m_pJed->GetSelectedSC(nQueuedSectorIndex) : nQueuedSectorIndex;
 		const uint32_t nBucketIndex = nSectorIndex / 32;
 		const uint32_t nBucketPlace = nSectorIndex % 32;
-		paSelectionMask[nBucketIndex] |= 1u << nBucketPlace;
+		selectionMask[nBucketIndex] |= 1u << nBucketPlace;
 	}
-	m_pSelectionBitmaskBuffer->Unmap();
 }
 
 void CLightBakerDlg::BuildLayerBitmask()
 {
-	uint32_t* paLayerMask = m_pLayerBitmaskBuffer->Map<uint32_t>(D3D11_MAP_WRITE);
-	memset(paLayerMask, 0, sizeof(uint32_t) * ((m_nNumLayers + 31) / 32));
+	CGpuBufferMapping<uint32_t> layerMask(&m_layerBitmaskBuffer, D3D11_MAP_WRITE);
+	memset(layerMask.RawData(), 0, sizeof(uint32_t) * ((m_nNumLayers + 31) / 32));
 	for (int nLayerIndex = 0; nLayerIndex < m_nNumLayers; ++nLayerIndex)
 	{
 		if (!(m_nBakeFlags & ELightBake_VisibleLayers) || m_pJed->IsLayerVisible(nLayerIndex))
 		{
 			const uint32_t nBucketIndex = nLayerIndex / 32;
 			const uint32_t nBucketPlace = nLayerIndex % 32;
-			paLayerMask[nBucketIndex] |= 1u << nBucketPlace;
+			layerMask[nBucketIndex] |= 1u << nBucketPlace;
 		}
 	}
-	m_pLayerBitmaskBuffer->Unmap();
 }
 
 void CLightBakerDlg::BuildLights()
 {
-	SLight* paLights = m_pLightBuffer->Map<SLight>(D3D11_MAP_WRITE);
+	CGpuBufferMapping<SLight> lights(&m_lightBuffer, D3D11_MAP_WRITE);
 
 	// build lights
 	m_nSunLightIndex = -1;
@@ -571,7 +565,7 @@ void CLightBakerDlg::BuildLights()
 			light.b = ToLinear(light.b);
 		}
 
-		SLight* pLight = &paLights[nLightIndex];
+		SLight* pLight = &lights[nLightIndex];
 		pLight->nSectorIndex = m_pJed->FindSectorForXYZ(light.x, light.y, light.z);
 		pLight->nFlags = light.flags;
 		pLight->range = (float)light.range;
@@ -586,16 +580,20 @@ void CLightBakerDlg::BuildLights()
 		else if (light.flags & ELight_Anchor)
 			m_nAnchorLightIndex = nLightIndex;
 	}
-
-	m_pLightBuffer->Unmap();
 }
 
 void CLightBakerDlg::BuildGeometry()
 {
-	SSector*  paSectors  = m_pSectorBuffer->Map<SSector>(D3D11_MAP_WRITE);
-	SSurface* paSurfaces = m_pSurfaceBuffer->Map<SSurface>(D3D11_MAP_WRITE);
-	SVertex*  paVertices = m_pVertexBuffer->Map<SVertex>(D3D11_MAP_WRITE);
-	int4*     paNormals  = m_pNormalBuffer->Map<int4>(D3D11_MAP_WRITE);
+	CGpuBufferMapping<SSector> sectors(&m_sectorBuffer, D3D11_MAP_WRITE);
+	CGpuBufferMapping<SSurface> surfaces(&m_surfaceBuffer, D3D11_MAP_WRITE);
+	CGpuBufferMapping<SVertex> vertices(&m_vertexBuffer, D3D11_MAP_WRITE);
+	CGpuBufferMapping<int4> normals(&m_normalBuffer, D3D11_MAP_WRITE);
+
+	if (!sectors || !surfaces || !vertices || !normals)
+	{
+		PrintMessage(m_pJed, msg_error, "Failed to map geometry buffers for upload.");
+		return;
+	}
 
 	uint32_t nSurfaceOffset = 0;
 	uint32_t nVertexOffset = 0;
@@ -611,7 +609,7 @@ void CLightBakerDlg::BuildGeometry()
 		tjedbox box;
 		m_pJed->FindBBox(nSectorIndex, &box);
 
-		SSector* pSector = &paSectors[nSectorIndex];
+		SSector* pSector = &sectors[nSectorIndex];
 		pSector->nFirstSurface = nSurfaceOffset;
 		pSector->nNumSurfaces = nNumSurfaces;
 		pSector->nLayerIndex = sector.layer;
@@ -634,7 +632,7 @@ void CLightBakerDlg::BuildGeometry()
 			
 			const int nNumVertices = m_pJedLevel->SurfaceNVertices(nSectorIndex, nSurfaceIndex);
 
-			SSurface* pSurface = &paSurfaces[nDstIndex];
+			SSurface* pSurface = &surfaces[nDstIndex];
 			pSurface->nFirstVertex = nVertexOffset;
 			pSurface->nNumVertices = nNumVertices;
 
@@ -692,7 +690,7 @@ void CLightBakerDlg::BuildGeometry()
 			{
 				float3 vertex = QuerySurfaceVertex(nSectorIndex, nSurfaceIndex, nVertexIndex);
 
-				SVertex* pVertex = &paVertices[nVertexOffset];
+				SVertex* pVertex = &vertices[nVertexOffset];
 				pVertex->position.x = vertex.x;
 				pVertex->position.y = vertex.y;
 				pVertex->position.z = vertex.z;
@@ -701,7 +699,7 @@ void CLightBakerDlg::BuildGeometry()
 				pVertex->nLocalSurfaceIndex = nSurfaceIndex;
 				pVertex->nLocalVertexIndex = nVertexIndex;
 
-				int4* pNormal = &paNormals[nVertexOffset++];
+				int4* pNormal = &normals[nVertexOffset++];
 				pNormal->x = (int)(normal.x * 1024.0);
 				pNormal->y = (int)(normal.y * 1024.0);
 				pNormal->z = (int)(normal.z * 1024.0);
@@ -711,11 +709,6 @@ void CLightBakerDlg::BuildGeometry()
 			//++nSurfaceOffset;
 		}
 	}
-
-	m_pSectorBuffer->Unmap();
-	m_pSurfaceBuffer->Unmap();
-	m_pVertexBuffer->Unmap();
-	m_pNormalBuffer->Unmap();
 }
 
 int CLightBakerDlg::CreateComputeShader(ID3D11Device* pDevice, ID3D11ComputeShader** pShader, UINT resourceID) const
@@ -767,20 +760,20 @@ void CLightBakerDlg::DispatchBakePass(int nDispatchX, int nDispatchY, ID3D11Comp
 {
 	ID3D11ShaderResourceView* apShaderResources[] =
 	{
-		m_pSelectionBitmaskBuffer->GetSRV(),
-		m_pLayerBitmaskBuffer->GetSRV(),
-		m_pSectorBuffer->GetSRV(),
-		m_pSurfaceBuffer->GetSRV(),
-		m_pVertexBuffer->GetSRV(),
-		m_pLightBuffer->GetSRV(),
-		m_pNormalBuffer->GetSRV(),
+		m_selectionBitmaskBuffer.GetSRV(),
+		m_layerBitmaskBuffer.GetSRV(),
+		m_sectorBuffer.GetSRV(),
+		m_surfaceBuffer.GetSRV(),
+		m_vertexBuffer.GetSRV(),
+		m_lightBuffer.GetSRV(),
+		m_normalBuffer.GetSRV(),
 		pReadBuffer->GetSRV()
 	};
 	
 	ID3D11UnorderedAccessView* apUnorderedResources[] =
 	{
 		pWriteBuffer->GetUAV(),
-		m_pAccumulationBuffer->GetUAV()
+		m_accumulationBuffer.GetUAV()
 	};
 
 	ID3D11Buffer* apConstantBuffers[] = { m_pLevelInfoConstants };
@@ -809,22 +802,22 @@ void CLightBakerDlg::BakeDirectLighting()
 	// - Direct lights (atomic add)
 	// - Sky and emissive (atomic add)
 	if (m_nBakeFlags & ELightBake_Sun)
-		DispatchBakePass((m_nTotalVertices + 255) / 256, 1, m_pBakeSunShader, m_pColorLastResultBuffer, m_pColorCurrResultBuffer);
+		DispatchBakePass((m_nTotalVertices + 255) / 256, 1, m_pBakeSunShader, &m_colorLastResultBuffer, &m_colorCurrResultBuffer);
 	
 	if (m_nBakeFlags & ELightBake_Lights)
-		DispatchBakePass(m_nTotalVertices, 1, m_pBakeDirectShader, m_pColorLastResultBuffer, m_pColorCurrResultBuffer);
+		DispatchBakePass(m_nTotalVertices, 1, m_pBakeDirectShader, &m_colorLastResultBuffer, &m_colorCurrResultBuffer);
 	
 	if ((m_nBakeFlags & ELightBake_Sky) || (m_nBakeFlags & ELightBake_Emissive))
-		DispatchBakePass(m_nTotalVertices, 1, m_pBakeSkyEmissiveShader, m_pColorLastResultBuffer, m_pColorCurrResultBuffer);
+		DispatchBakePass(m_nTotalVertices, 1, m_pBakeSkyEmissiveShader, &m_colorLastResultBuffer, &m_colorCurrResultBuffer);
 }
 
 void CLightBakerDlg::BakeIndirectLighting()
 {
-	CGpuBuffer* pReadBuffer = m_pColorLastResultBuffer;
-	CGpuBuffer* pWriteBuffer = m_pColorCurrResultBuffer;
+	CGpuBuffer* pReadBuffer = &m_colorLastResultBuffer;
+	CGpuBuffer* pWriteBuffer = &m_colorCurrResultBuffer;
 
 	// Copy the direct light result for the first bounce
-	m_pDeviceContextD3D->CopyResource(pReadBuffer->GetBuffer(), m_pAccumulationBuffer->GetBuffer());
+	m_pDeviceContextD3D->CopyResource(pReadBuffer->GetBuffer(), m_accumulationBuffer.GetBuffer());
 
 	for (int nBounce = 0; nBounce < m_nIndirectBounces; ++nBounce)
 	{
@@ -841,16 +834,16 @@ void CLightBakerDlg::ComputeSmoothNormals()
 {
 	ID3D11ShaderResourceView* apShaderResources[] =
 	{
-		m_pSelectionBitmaskBuffer->GetSRV(),
-		m_pLayerBitmaskBuffer->GetSRV(),
-		m_pSectorBuffer->GetSRV(),
-		m_pSurfaceBuffer->GetSRV(),
-		m_pVertexBuffer->GetSRV(),
+		m_selectionBitmaskBuffer.GetSRV(),
+		m_layerBitmaskBuffer.GetSRV(),
+		m_sectorBuffer.GetSRV(),
+		m_surfaceBuffer.GetSRV(),
+		m_vertexBuffer.GetSRV(),
 	};
 
 	ID3D11UnorderedAccessView* apUnorderedResources[] =
 	{
-		m_pNormalBuffer->GetUAV()
+		m_normalBuffer.GetUAV()
 	};
 
 	ID3D11Buffer* apConstantBuffers[] = { m_pLevelInfoConstants };
@@ -872,98 +865,96 @@ void CLightBakerDlg::ComputeSmoothNormals()
 
 void CLightBakerDlg::DownloadAndApplyToLevel()
 {
-	const float4*   pVertexData  = m_pAccumulationBuffer->Map<float4>(D3D11_MAP_READ);
-	const SVertex*  paVertices   = m_pVertexBuffer->Map<SVertex>(D3D11_MAP_READ);
-	const SSector*  paSectors    = m_pSectorBuffer->Map<SSector>(D3D11_MAP_READ);
-	const SSurface* paSurfaces   = m_pSurfaceBuffer->Map<SSurface>(D3D11_MAP_READ);
-	const uint32_t* paLayerMask  = m_pLayerBitmaskBuffer->Map<uint32_t>(D3D11_MAP_WRITE);
-	const uint32_t* paSectorMask = m_pSelectionBitmaskBuffer->Map<uint32_t>(D3D11_MAP_WRITE);
-	if (pVertexData && paVertices && paSectors && paSurfaces && paLayerMask && paSectorMask)
+	const CGpuBufferMapping<float4> vertexData(&m_accumulationBuffer, D3D11_MAP_READ);
+	const CGpuBufferMapping<SVertex> vertices(&m_vertexBuffer, D3D11_MAP_READ);
+	const CGpuBufferMapping<SSector> sectors(&m_sectorBuffer, D3D11_MAP_READ);
+	const CGpuBufferMapping<SSurface> surfaces(&m_surfaceBuffer, D3D11_MAP_READ);
+	const CGpuBufferMapping<uint32_t> layerMask(&m_layerBitmaskBuffer, D3D11_MAP_WRITE);
+	const CGpuBufferMapping<uint32_t> sectorMask(&m_selectionBitmaskBuffer, D3D11_MAP_WRITE);
+
+	if (!vertexData || !vertices || !sectors || !surfaces || !layerMask || !sectorMask)
 	{
-		for (int nVertexIndex = 0; nVertexIndex < m_nTotalVertices; ++nVertexIndex)
-		{
-			const uint32_t nSectorIndex = paVertices[nVertexIndex].nSectorIndex;
-			const uint32_t nSurfaceIndex = paVertices[nVertexIndex].nSurfaceIndex;
-			const uint32_t nLayerIndex = paSectors[nSectorIndex].nLayerIndex;
-
-			// don't update vertices for surfaces if they weren't touched in the bake
-			if (!TestMaskBit(paSectorMask, nSectorIndex)
-				|| !TestMaskBit(paLayerMask, nLayerIndex)
-				|| !(paSurfaces[nSurfaceIndex].nFlags & ESurface_IsVisible))
-			{
-				continue;
-			}
-
-			float4 color = pVertexData[nVertexIndex];
-			if (m_nBakeFlags & ELightBake_ToneMap)
-			{
-				float a = 2.51f;
-				float b = 0.03f;
-				float c = 2.43f;
-				float d = 0.59f;
-				float e = 0.14f;
-				color = ((color * (a * color + b)) / (color * (c * color + d) + e));
-			}
-
-			if (m_nBakeFlags & ELightBake_GammaCorrect)
-				color = ToSRGB(color);
-
-			const uint32_t nLocalSurfaceIndex = paVertices[nVertexIndex].nLocalSurfaceIndex;
-			const uint32_t nLocalVertexIndex = paVertices[nVertexIndex].nLocalVertexIndex;
-
-			m_pJedLevel->SurfaceSetVertexLight(nSectorIndex, nLocalSurfaceIndex, nLocalVertexIndex, color.w, color.x, color.y, color.z);
-		}
-
-		// todo: do this on gpu
-		for (int nSectorIndex = 0; nSectorIndex < m_nNumSectors; ++nSectorIndex)
-		{
-			if (!TestMaskBit(paSectorMask, nSectorIndex))
-			{
-				continue;
-			}
-
-			// todo: might be better to actually also trace probes at the center of sectors to get better ambient
-			float4 ambientColor = { 0,0,0,0 };
-			float totalAmbient = 0.0f;
-
-			const int nNumSurfaces = m_pJedLevel->SectorNSurfaces(nSectorIndex);
-			for (int nSurfaceIndex = 0; nSurfaceIndex < nNumSurfaces; ++nSurfaceIndex)
-			{
-				const int nNumVertices = m_pJedLevel->SurfaceNVertices(nSectorIndex, nSurfaceIndex);
-				for (int nVertexIndex = 0; nVertexIndex < nNumVertices; ++nVertexIndex)
-				{
-					float r, g, b, a;
-					m_pJedLevel->SurfaceGetVertexLight(nSectorIndex, nSurfaceIndex, nVertexIndex, &a, &r, &g, &b);
-
-					ambientColor += float4(r, g, b, a);
-					totalAmbient += 1.0f;
-				}
-				m_pJedLevel->SurfaceUpdate(nSectorIndex, nSurfaceIndex, 0);
-			}
-
-			// update sector ambient if needed
-			tjedsectorrec sector;
-			memset(&sector, 0, sizeof(tjedsectorrec));
-			m_pJedLevel->GetSector(nSectorIndex, &sector, s_flags | s_ambient);
-			if (!(sector.flags & ESector_NoAmbientLightRGB) && !(sector.flags & ESector_NoAmbientLight))
-			{
-				float invTotalAmbient = totalAmbient < 1e-5f ? 0.0f : 1.0f / totalAmbient;
-				ambientColor *= invTotalAmbient;
-
-				// todo: SED has rgb ambient for Jones?
-				sector.ambient = ambientColor.w;
-				m_pJedLevel->SetSector(nSectorIndex, &sector, s_ambient);
-			}
-
-			m_pJedLevel->SectorUpdate(nSectorIndex);
-		}
+		PrintMessage(m_pJed, msg_error, "Failed to map geometry buffers for download.");
+		return;
 	}
-	m_pVertexBuffer->Unmap();
-	m_pAccumulationBuffer->Unmap();
-	m_pSectorBuffer->Unmap();
-	m_pSurfaceBuffer->Unmap();
-	m_pLayerBitmaskBuffer->Unmap();
-	m_pSelectionBitmaskBuffer->Unmap();
+
+	for (int nVertexIndex = 0; nVertexIndex < m_nTotalVertices; ++nVertexIndex)
+	{
+		const uint32_t nSectorIndex = vertices[nVertexIndex].nSectorIndex;
+		const uint32_t nSurfaceIndex = vertices[nVertexIndex].nSurfaceIndex;
+		const uint32_t nLayerIndex = sectors[nSectorIndex].nLayerIndex;
+
+		// don't update vertices for surfaces if they weren't touched in the bake
+		if (!TestMaskBit(sectorMask.RawData(), nSectorIndex)
+			|| !TestMaskBit(layerMask.RawData(), nLayerIndex)
+			|| !(surfaces[nSurfaceIndex].nFlags & ESurface_IsVisible))
+		{
+			continue;
+		}
+
+		float4 color = vertexData[nVertexIndex];
+		if (m_nBakeFlags & ELightBake_ToneMap)
+		{
+			float a = 2.51f;
+			float b = 0.03f;
+			float c = 2.43f;
+			float d = 0.59f;
+			float e = 0.14f;
+			color = ((color * (a * color + b)) / (color * (c * color + d) + e));
+		}
+
+		if (m_nBakeFlags & ELightBake_GammaCorrect)
+			color = ToSRGB(color);
+
+		const uint32_t nLocalSurfaceIndex = vertices[nVertexIndex].nLocalSurfaceIndex;
+		const uint32_t nLocalVertexIndex = vertices[nVertexIndex].nLocalVertexIndex;
+
+		m_pJedLevel->SurfaceSetVertexLight(nSectorIndex, nLocalSurfaceIndex, nLocalVertexIndex, color.w, color.x, color.y, color.z);
+	}
+
+	// todo: do this on gpu
+	for (int nSectorIndex = 0; nSectorIndex < m_nNumSectors; ++nSectorIndex)
+	{
+		if (!TestMaskBit(sectorMask.RawData(), nSectorIndex))
+		{
+			continue;
+		}
+
+		// todo: might be better to actually also trace probes at the center of sectors to get better ambient
+		float4 ambientColor = { 0,0,0,0 };
+		float totalAmbient = 0.0f;
+
+		const int nNumSurfaces = m_pJedLevel->SectorNSurfaces(nSectorIndex);
+		for (int nSurfaceIndex = 0; nSurfaceIndex < nNumSurfaces; ++nSurfaceIndex)
+		{
+			const int nNumVertices = m_pJedLevel->SurfaceNVertices(nSectorIndex, nSurfaceIndex);
+			for (int nVertexIndex = 0; nVertexIndex < nNumVertices; ++nVertexIndex)
+			{
+				float r, g, b, a;
+				m_pJedLevel->SurfaceGetVertexLight(nSectorIndex, nSurfaceIndex, nVertexIndex, &a, &r, &g, &b);
+
+				ambientColor += float4(r, g, b, a);
+				totalAmbient += 1.0f;
+			}
+			m_pJedLevel->SurfaceUpdate(nSectorIndex, nSurfaceIndex, 0);
+		}
+
+		// update sector ambient if needed
+		tjedsectorrec sector;
+		memset(&sector, 0, sizeof(tjedsectorrec));
+		m_pJedLevel->GetSector(nSectorIndex, &sector, s_flags | s_ambient);
+		if (!(sector.flags & ESector_NoAmbientLightRGB) && !(sector.flags & ESector_NoAmbientLight))
+		{
+			float invTotalAmbient = totalAmbient < 1e-5f ? 0.0f : 1.0f / totalAmbient;
+			ambientColor *= invTotalAmbient;
+
+			// todo: SED has rgb ambient for Jones?
+			sector.ambient = ambientColor.w;
+			m_pJedLevel->SetSector(nSectorIndex, &sector, s_ambient);
+		}
+
+		m_pJedLevel->SectorUpdate(nSectorIndex);
+	}
 }
 
 SColormap* CLightBakerDlg::LoadColormap(const wchar_t* sFileName)

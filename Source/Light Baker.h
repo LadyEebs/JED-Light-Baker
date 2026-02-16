@@ -302,16 +302,16 @@ private:
 	ID3D11Device*        m_pDeviceD3D;
 	ID3D11DeviceContext* m_pDeviceContextD3D;
 
-	CGpuBuffer* m_pSelectionBitmaskBuffer;
-	CGpuBuffer* m_pLayerBitmaskBuffer;
-	CGpuBuffer* m_pSectorBuffer;
-	CGpuBuffer* m_pSurfaceBuffer;
-	CGpuBuffer* m_pVertexBuffer;
-	CGpuBuffer* m_pLightBuffer;
-	CGpuBuffer* m_pNormalBuffer;
-	CGpuBuffer* m_pColorLastResultBuffer;
-	CGpuBuffer* m_pColorCurrResultBuffer;
-	CGpuBuffer* m_pAccumulationBuffer;
+	CGpuBuffer m_selectionBitmaskBuffer;
+	CGpuBuffer m_layerBitmaskBuffer;
+	CGpuBuffer m_sectorBuffer;
+	CGpuBuffer m_surfaceBuffer;
+	CGpuBuffer m_vertexBuffer;
+	CGpuBuffer m_lightBuffer;
+	CGpuBuffer m_normalBuffer;
+	CGpuBuffer m_colorLastResultBuffer;
+	CGpuBuffer m_colorCurrResultBuffer;
+	CGpuBuffer m_accumulationBuffer;
 
 	ID3D11ComputeShader* m_pBakeSunShader;
 	ID3D11ComputeShader* m_pBakeDirectShader;
