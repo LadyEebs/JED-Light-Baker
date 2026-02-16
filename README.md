@@ -40,6 +40,9 @@ All settings except position do nothing.
 - Tone mapped result, if using very strong lights and aiming to avoid clamping to 1.0
 - Smooth normals for curved surfaces
 
+# Limitations
+Unfortunately since community material tools (like Mat16) don't write out RGB colors for materials, the baker is limited to 8 bit materials only. Everything else is treated as white.
+
 # How it Works
 A barebones version of the level is uploaded to the GPU via Buffers/StructuredBuffers. This minimal version contains basic geometry (surface normal, vertex positions, fill colors) and connectivity (adjoins).
 
