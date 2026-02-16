@@ -248,9 +248,9 @@ private:
 	bool BakeLighting(uint32_t nInitBakeFlags);
 
 	// Jed helpers/utils (todo: move me)
-	bool       IsSurfaceVisible(int nSectorIndex, int nSurfaceIndex) const;
-	float3     GetSurfaceNormal(int nSectorIndex, int nSurfaceIndex) const;
-	float3     GetSurfaceVertex(int nSectorIndex, int nSurfaceIndex, int nVertexIndex) const;
+	bool       QuerySurfaceVisible(int nSectorIndex, int nSurfaceIndex) const;
+	float3     QuerySurfaceNormal(int nSectorIndex, int nSurfaceIndex) const;
+	float3     QuerySurfaceVertex(int nSectorIndex, int nSurfaceIndex, int nVertexIndex) const;
 
 	// fetches the level header and preloads the master cmp if there is one
 	void       PreloadMasterCMP();
