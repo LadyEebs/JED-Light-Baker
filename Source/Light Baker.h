@@ -248,6 +248,9 @@ public:
 	afx_msg void OnBnClickedBakeVisibleLayers();
 	afx_msg void OnCbnSelchangeComboRays();
 	afx_msg void OnCbnSelchangeComboIndirectRays();
+	afx_msg void OnBnClickedSunlightButton();
+	afx_msg void OnBnClickedSkylightButton();
+	afx_msg void OnBnClickedAnchorlightButton();
 
 private:
 	// main entry point for baking process, everything below assumes flags etc are set
@@ -297,6 +300,8 @@ private:
 
 	// downloads the results from the GPU and writes them back to the level
 	void DownloadAndApplyToLevel();
+
+	void SelectOrCreateLight(int nLightFlags);
 
 private:
 	// Jed

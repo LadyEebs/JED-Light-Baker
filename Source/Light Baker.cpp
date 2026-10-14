@@ -229,8 +229,7 @@ BOOL CLightBakerDlg::OnInitDialog()
 {
 	CDialogEx::OnInitDialog();
 	ModifyStyle(WS_THICKFRAME, 0, 0);
-	SetWindowPos(&wndTop, 0, 0, 0, 0,
-					SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+	SetWindowPos(&wndTop, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 
 	for (auto name : ksRaysPerVertex)
 		m_skyEmissionRayCombo.AddString(name);
@@ -269,7 +268,62 @@ BEGIN_MESSAGE_MAP(CLightBakerDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BUTTON_BAKE_LAYERS, &CLightBakerDlg::OnBnClickedBakeVisibleLayers)
 	ON_CBN_SELCHANGE(IDC_COMBO_RAYS, &CLightBakerDlg::OnCbnSelchangeComboRays)
 	ON_CBN_SELCHANGE(IDC_COMBO_INDIRECT_RAYS, &CLightBakerDlg::OnCbnSelchangeComboIndirectRays)
+    ON_BN_CLICKED(IDC_SUNLIGHT_BUTTON, &CLightBakerDlg::OnBnClickedSunlightButton)
+	ON_BN_CLICKED(IDC_SKYLIGHT_BUTTON, &CLightBakerDlg::OnBnClickedSkylightButton)
+	ON_BN_CLICKED(IDC_ANCHORLIGHT_BUTTON, &CLightBakerDlg::OnBnClickedAnchorlightButton)
 END_MESSAGE_MAP()
+
+void CLightBakerDlg::SelectOrCreateLight(int nLightFlags)
+{
+	int nLightIndex = -1;
+
+	// find the first existing light with the specified flags (if one exists)
+	int nNumLights = m_pJedLevel->NLights();
+	for (int i = 0; i < nNumLights; ++i)
+	{
+		tjedlightrec light;
+		memset(&light, 0, sizeof(tjedlightrec));
+		m_pJedLevel->GetLight(i, &light, lt_flags);
+		if (light.flags & nLightFlags)
+		{
+			nLightIndex = i;
+			break;
+		}
+	}
+
+	// no light of the specified type found? create one
+	if (nLightIndex < 0)
+	{
+		tjedlightrec light;
+		memset(&light, 0, sizeof(tjedlightrec));
+		light.intensity = 1.0;
+		light.r = 1.0;
+		light.g = 1.0;
+		light.b = 1.0;
+		light.rgbintensity = 1.0;
+		light.flags = nLightFlags;
+		nLightIndex = m_pJedLevel->AddLight();
+		m_pJedLevel->SetLight(nLightIndex, &light, lt_all);
+	}
+	
+	// select the light in Jed
+	m_pJed->SetCurLT(nLightIndex);
+}
+
+void CLightBakerDlg::OnBnClickedSunlightButton()
+{
+	SelectOrCreateLight(ELight_Sun);
+}
+
+void CLightBakerDlg::OnBnClickedSkylightButton()
+{
+	SelectOrCreateLight(ELight_Sky);
+}
+
+void CLightBakerDlg::OnBnClickedAnchorlightButton()
+{
+	SelectOrCreateLight(ELight_Anchor);
+}
 
 afx_msg void CLightBakerDlg::OnBnClickedBakeAll()
 {

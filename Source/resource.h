@@ -25,8 +25,13 @@
 #define IDC_NORMAL_SMOOTH_LABEL         1021
 #define IDC_NORMAL_SMOOTH_EDIT          1022
 #define IDC_NORMAL_SMOOTH_SPIN          1023
+#define IDC_GROUP_TOOLS                 1024
 #define IDC_COMBO_RAYS                  1025
 #define IDC_COMBO_INDIRECT_RAYS         1026
+#define IDC_SUNLIGHT_BUTTON             1028
+#define IDC_SKYLIGHT_BUTTON             1029
+#define IDC_SKYLIGHT_BUTTON2            1030
+#define IDC_ANCHORLIGHT_BUTTON          1030
 #define IDD_LIGHTBAKER_DLG              2000
 #define IDC_CHECK_POINT                 2001
 #define IDC_CHECK_SUN                   2002
@@ -40,9 +45,9 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        1011
+#define _APS_NEXT_RESOURCE_VALUE        1013
 #define _APS_NEXT_COMMAND_VALUE         32771
-#define _APS_NEXT_CONTROL_VALUE         1026
+#define _APS_NEXT_CONTROL_VALUE         1030
 #define _APS_NEXT_SYMED_VALUE           1000
 #endif
 #endif
