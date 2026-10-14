@@ -221,6 +221,7 @@
     <None Include="Light Baker.def" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Enums.h" />
     <ClInclude Include="float3.h" />
     <ClInclude Include="float4.h" />
     <ClInclude Include="framework.h" />
