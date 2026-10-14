@@ -33,8 +33,6 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 
 		const float3 lightDir = aLights[nLightIndex].position.xyz - vertexData.vertex;
 		const float ndotl = dot(lightDir, vertexData.normal);
-		if (ndotl <= 0.0f)
-			continue;
 
 		const float rangeSqr = aLights[nLightIndex].range * aLights[nLightIndex].range;
 		const float dist2 = dot(lightDir, lightDir);
@@ -46,7 +44,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 
 		SRayPayload payload = (SRayPayload) 0;
 		payload.attenuation = float4(1, 1, 1, 1);
-		if (!(aLights[nLightIndex].nFlags & ELight_NotBlocked))
+		if (ndotl > 0.0 && !(aLights[nLightIndex].nFlags & ELight_NotBlocked))
 		{
 			if (nLightSectorIndex != vertexData.nSectorIndex)
 			{
