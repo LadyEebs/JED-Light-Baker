@@ -1076,15 +1076,13 @@ uint32_t CLightBakerDlg::LoadMaterialFillColor(const wchar_t* sFileName, const S
 			m_pJed->CloseFile(nFileHandle);
 			return 0;
 		}
-		if (recordHeader.nTextureType & 8)
+		
+		SMaterialRecordHeaderExt ext;
+		if (m_pJed->ReadFile(nFileHandle, &ext, sizeof(SMaterialRecordHeaderExt)) != sizeof(SMaterialRecordHeaderExt))
 		{
-			SMaterialRecordHeaderExt ext;
-			if (m_pJed->ReadFile(nFileHandle, &ext, sizeof(SMaterialRecordHeaderExt)) != sizeof(SMaterialRecordHeaderExt))
-			{
-				PrintMessage(m_pJed, msg_error, "Failed to read material texture header from '%ls'.", sFileName);
-				m_pJed->CloseFile(nFileHandle);
-				return 0;
-			}
+			PrintMessage(m_pJed, msg_error, "Failed to read material texture header from '%ls'.", sFileName);
+			m_pJed->CloseFile(nFileHandle);
+			return 0;
 		}
 	}
 	m_materialColorCache.emplace(sFileName, recordHeader.nFillColor);
