@@ -41,7 +41,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 		const float3 lightVec = lightDir / dist;
 
 		SRayPayload payload = (SRayPayload)0;
-		payload.attenuation = float4(1,1,1,1);
+		payload.attenuation = float4(ndotl, ndotl, ndotl, ndotl);
 		if (!(aLights[nLightIndex].nFlags & ELight_NotBlocked))
 		{		
 			if (nLightSectorIndex != vertexData.nSectorIndex)
