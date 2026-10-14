@@ -448,10 +448,6 @@ bool CLightBakerDlg::BakeLighting(uint32_t nInitBakeFlags)
 	if (FAILED(m_pJed->StartUndo(const_cast<char*>("Light Baker"))))
 		return false;
 
-	const int sectorCount = m_pJedLevel->NSectors();
-	for (int sector = 0; sector < sectorCount; ++sector)
-		m_pJed->SaveUndoForSector(sector, 0, sc_geometry);
-
 	const auto startTime = std::chrono::high_resolution_clock::now();
 
 	// we need to know how many vertices we have in total in the level
@@ -466,6 +462,7 @@ bool CLightBakerDlg::BakeLighting(uint32_t nInitBakeFlags)
 			const int nNumVertices = m_pJedLevel->SurfaceNVertices(nSectorIndex, nSurfaceIndex);
 			m_nTotalVertices += nNumVertices;
 		}
+		m_pJed->SaveUndoForSector(nSectorIndex, 0, sc_geometry);
 	}
 	PrintMessage(m_pJed, msg_info, "%u Vertices in Level queued for baking.", m_nTotalVertices);
 
