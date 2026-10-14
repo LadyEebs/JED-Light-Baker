@@ -307,6 +307,7 @@ void CLightBakerDlg::SelectOrCreateLight(int nLightFlags)
 	}
 	
 	// select the light in Jed
+	m_pJed->SetMapMode(MM_LT);
 	m_pJed->SetCurLT(nLightIndex);
 }
 
