@@ -30,7 +30,7 @@ static const float kSkyDistance = 512.0;
 static const float kSurfaceAlpha = 90.0/255.0;
 
 // bias the ray along the ray dir to avoid self intersection or stuff like that
-static const float kRayBias = -1e-4;
+static const float kRayBias = -1e-5;
 
 // maximum number of adjoins to cross for a given ray (puts an upper bound on recursions for safety)
 static const int kMaxRecursion = 256; // should be more than enough?
@@ -267,7 +267,7 @@ bool IsPointOnSurface(int nSurfaceIndex, float3 position)
 		const float3 vertex1 = aVertices[nFirstVertex + i].position.xyz;
 		const float3 vertex2 = aVertices[nFirstVertex + (i + 1) % nNumVertices].position.xyz;
 		const float dist = dot(cross(normal, vertex2 - vertex1), position - vertex1);
-		if (dist < -1e-3)
+		if (dist < -1e-6)
 		{
 			bResult = false;
 			break;
@@ -297,9 +297,9 @@ bool IsSurfCrossed(int nSurfaceIndex, float3 start, float3 end, inout float3 hit
 		const float distToStart = dot(normal, start - vertex);
 		const float distToEnd   = dot(normal, end - vertex);
 
-		const bool bAllOutsidePositive = (distToStart > 0.0001 && distToEnd > 0.0001);
-		const bool bAllOutsideNegative = (distToStart < -0.0001 && distToEnd < -0.0001);
-		const bool bBothOnPlane        = (abs(distToStart) <= 0.0001 && abs(distToEnd) <= 0.0001);
+		const bool bAllOutsidePositive = (distToStart > 1e-6 && distToEnd > 1e-6);
+		const bool bAllOutsideNegative = (distToStart < -1e-6 && distToEnd < -1e-6);
+		const bool bBothOnPlane        = (abs(distToStart) <= 1e-6 && abs(distToEnd) <= 1e-6);
 
 		[branch]
 		if (!bAllOutsidePositive && !bAllOutsideNegative)
