@@ -180,9 +180,15 @@ struct SMaterialFileHeader
 	SColorFormat colorFormat;
 };
 
+enum EMaterialRecordType
+{
+	EMaterialRecordType_Color = 0,
+	EMaterialRecordType_Texture = 0x8,
+};
+
 struct SMaterialRecordHeader
 {
-	uint32_t nTextureType = 0;
+	uint32_t nTextureType = EMaterialRecordType_Color;
 	uint32_t nFillColor = 0;
 	uint32_t nUnknown1 = 0;
 	uint32_t nUnknown2 = 0;

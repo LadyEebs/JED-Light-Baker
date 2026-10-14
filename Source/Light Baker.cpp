@@ -1076,7 +1076,7 @@ uint32_t CLightBakerDlg::LoadMaterialFillColor(const wchar_t* sFileName, const S
 			m_pJed->CloseFile(nFileHandle);
 			return 0;
 		}
-		if (recordHeader.nTextureType & 8)
+		if (recordHeader.nTextureType & EMaterialRecordType_Texture)
 		{
 			SMaterialRecordHeaderExt ext;
 			if (m_pJed->ReadFile(nFileHandle, &ext, sizeof(SMaterialRecordHeaderExt)) != sizeof(SMaterialRecordHeaderExt))
