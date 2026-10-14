@@ -18,7 +18,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 	for(int nLightIndex = groupThreadID.x; nLightIndex < g_levelInfo.nTotalLights; nLightIndex += LIGHTS_PER_GROUP)
 	{
 		int nLightSectorIndex = aLights[nLightIndex].nSectorIndex;
-		if (nLightSectorIndex < 0 || (aLights[nLightIndex].nFlags & ELight_Sun) || (aLights[nLightIndex].nFlags & ELight_Sky)) // invalid sector or a sun/sky light
+        if (nLightSectorIndex < 0 || (aLights[nLightIndex].nFlags & (ELight_Sun | ELight_Sky | ELight_Ambient))) // invalid sector or a sun/sky/ambient light
 			continue;
 
 		if (!IsSectorVisible(nLightSectorIndex))

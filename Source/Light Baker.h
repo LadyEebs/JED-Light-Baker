@@ -107,9 +107,10 @@ enum ESkyFlags
 // Baker specific light flags
 enum ELightFlags
 {
-	ELight_Sun    = 0x2,
-	ELight_Sky    = 0x4,
-	ELight_Anchor = 0x8,
+	ELight_Sun     = 0x2,
+	ELight_Sky     = 0x4,
+	ELight_Anchor  = 0x8,
+	ELight_Ambient = 0x10,
 };
 
 // be careful of constant buffer padding here
@@ -331,6 +332,7 @@ private:
 	ID3D11ComputeShader* m_pBakeDirectShader;
 	ID3D11ComputeShader* m_pBakeSkyEmissiveShader;
 	ID3D11ComputeShader* m_pBakeIndirectShader;
+	ID3D11ComputeShader* m_pBakeAmbientShader;
 	ID3D11ComputeShader* m_pGenNormalsShader;
 
 	ID3D11Buffer* m_pLevelInfoConstants;

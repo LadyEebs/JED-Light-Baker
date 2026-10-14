@@ -13,6 +13,7 @@
 #define IDC_INDIRECT_RAY_LABEL          1009
 #define IDR_BAKE_SUN_CSO                1009
 #define IDR_GEN_SMOOTH_NORMALS_CSO      1010
+#define IDR_BAKE_AMBIENT_CSO            1011
 #define IDC_BOUNCES_LABEL               1012
 #define IDC_BOUNCES_EDIT                1013
 #define IDC_BOUNCES_SPIN                1014

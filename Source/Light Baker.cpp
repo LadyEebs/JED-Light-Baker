@@ -127,6 +127,10 @@ CLightBakerDlg::~CLightBakerDlg()
 		m_pBakeIndirectShader->Release();
 	m_pBakeIndirectShader = nullptr;
 
+	if (m_pBakeAmbientShader)
+		m_pBakeAmbientShader->Release();
+	m_pBakeAmbientShader = nullptr;
+
 	if (m_pBakeIndirectShader)
 		m_pBakeIndirectShader->Release();
 	m_pBakeIndirectShader = nullptr;
@@ -173,6 +177,12 @@ bool CLightBakerDlg::CreateDeviceD3D()
 	if (!CreateComputeShader(m_pDeviceD3D, &m_pBakeDirectShader, IDR_BAKE_DIRECT_CSO))
 	{
 		PrintMessage(m_pJed, msg_error, "Failed to compile light shader.");
+		return false;
+	}
+
+	if (!CreateComputeShader(m_pDeviceD3D, &m_pBakeAmbientShader, IDR_BAKE_AMBIENT_CSO))
+	{
+		PrintMessage(m_pJed, msg_error, "Failed to compile ambient shader.");
 		return false;
 	}
 
@@ -495,10 +505,13 @@ bool CLightBakerDlg::BakeLighting(uint32_t nInitBakeFlags)
 	if (m_nBakeFlags & ELightBake_Direct)
 		BakeDirectLighting();
 
-	// - N Bounce passes (ping pong for readback between bounces, atomic add)
+	// N Bounce passes (ping pong for readback between bounces, atomic add)
 	if (m_nBakeFlags & ELightBake_Indirect)
 		BakeIndirectLighting();
 	
+	// bake multiplicative ambient lights
+	DispatchBakePass(m_nTotalVertices, 1, m_pBakeAmbientShader, &m_colorLastResultBuffer, &m_colorCurrResultBuffer);
+
 	m_pDeviceContextD3D->Flush();
 
 	DownloadAndApplyToLevel();

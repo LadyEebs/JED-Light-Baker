@@ -23,6 +23,7 @@ static const uint ELight_NotBlocked = 0x1;
 static const uint ELight_Sun        = 0x2;
 static const uint ELight_Sky        = 0x4;
 static const uint ELight_Anchor     = 0x8;
+static const uint ELight_Ambient    = 0x10;
 
 static const float kSkyDistance = 512.0;
 
