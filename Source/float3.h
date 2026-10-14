@@ -147,9 +147,14 @@ inline float dot(const float3& v1, const float3& v2)
 	return (v1.x * v2.x) + (v1.y * v2.y) + (v1.z * v2.z);
 }
 
+inline float lengthSq(const float3& v)
+{
+	return dot(v, v);
+}
+
 inline float length(const float3& v)
 {
-	return sqrtf(dot(v, v));
+	return sqrtf(lengthSq(v));
 }
 
 inline float3 normalize(const float3& v)
