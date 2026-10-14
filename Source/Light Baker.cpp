@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "framework.h"
 #include "Light Baker.h"
+#include "Jed.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -372,45 +373,6 @@ afx_msg void CLightBakerDlg::OnCbnSelchangeComboIndirectRays()
 	}
 }
 
-bool CLightBakerDlg::QuerySurfaceVisible(int nSectorIndex, int nSurfaceIndex) const
-{
-	tjedsurfacerec surface;
-	memset(&surface, 0, sizeof(tjedsurfacerec));
-	m_pJedLevel->GetSurface(nSectorIndex, nSurfaceIndex, &surface, sf_Material | sf_adjoin | sf_adjoinflags | sf_geo | sf_SurfFlags | sf_FaceFlags);
-
-	// ignore geo mode 0 (not visible) and surfaces with no material
-	if (surface.geo == 0 || !surface.material)
-		return false;
-
-	// ignore adjoins that block
-	if (surface.adjoinsc >= 0 && !(surface.adjoinflags & EAdjoin_Visible))
-		return false;
-
-	// ignore skies
-	if((surface.surfflags & ESky_Horizon) != 0 || (surface.surfflags & ESky_Ceiling) != 0)
-		return false;
-
-	return true;
-}
-
-float3 CLightBakerDlg::QuerySurfaceNormal(int nSectorIndex, int nSurfaceIndex) const
-{
-	tjedvector dnormal;
-	m_pJedLevel->GetSurfaceNormal(nSectorIndex, nSurfaceIndex, &dnormal);
-	return { (float)dnormal.v.s1.x, (float)dnormal.v.s1.y, (float)dnormal.v.s1.z };
-}
-
-float3 CLightBakerDlg::QuerySurfaceVertex(int nSectorIndex, int nSurfaceIndex, int nVertexIndex) const
-{
-	// Get sector vertex index from surface vertex index
-	int nVertex = m_pJedLevel->SurfaceGetVertexNum(nSectorIndex, nSurfaceIndex, nVertexIndex);
-
-	tjedvector vertex;
-	m_pJedLevel->SectorGetVertex(nSectorIndex, nVertex, &vertex.v.s1.x, &vertex.v.s1.y, &vertex.v.s1.z);
-
-	return { (float)vertex.v.s1.x, (float)vertex.v.s1.y, (float)vertex.v.s1.z };
-}
-
 bool CLightBakerDlg::BakeLighting(uint32_t nInitBakeFlags)
 {
 	m_nBakeFlags = nInitBakeFlags;
@@ -745,14 +707,14 @@ void CLightBakerDlg::BuildGeometry()
 			pSurface->emissive.z = emissive.z;
 			pSurface->emissive.w = (emissive.x + emissive.y + emissive.z) / 3.0f;
 
-			float3 normal = QuerySurfaceNormal(nSectorIndex, nSurfaceIndex);
+			float3 normal = Jed::QuerySurfaceNormal(m_pJedLevel, nSectorIndex, nSurfaceIndex);
 			pSurface->normal.x = normal.x;
 			pSurface->normal.y = normal.y;
 			pSurface->normal.z = normal.z;
 
 			// if a surface is set to block light, then ignore the adjoin value
 			pSurface->nAdjoinSector = nAdjoinSector;
-			pSurface->nFlags = QuerySurfaceVisible(nSectorIndex, nSurfaceIndex) ? ESurface_IsVisible : 0;
+			pSurface->nFlags = Jed::QuerySurfaceVisible(m_pJedLevel, nSectorIndex, nSurfaceIndex) ? ESurface_IsVisible : 0;
 			if (surface.surfflags & ESky_Horizon)
 				pSurface->nFlags |= ESurface_IsHorizonSky;
 			if (surface.surfflags & ESky_Ceiling)
@@ -762,7 +724,7 @@ void CLightBakerDlg::BuildGeometry()
 
 			for (int nVertexIndex = 0; nVertexIndex < nNumVertices; ++nVertexIndex)
 			{
-				float3 vertex = QuerySurfaceVertex(nSectorIndex, nSurfaceIndex, nVertexIndex);
+				float3 vertex = Jed::QuerySurfaceVertex(m_pJedLevel, nSectorIndex, nSurfaceIndex, nVertexIndex);
 
 				SVertex* pVertex = &vertices[nVertexOffset];
 				pVertex->position.x = vertex.x;

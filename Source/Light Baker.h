@@ -195,11 +195,6 @@ private:
 	// main entry point for baking process, everything below assumes flags etc are set
 	bool BakeLighting(uint32_t nInitBakeFlags);
 
-	// Jed helpers/utils (todo: move me)
-	bool       QuerySurfaceVisible(int nSectorIndex, int nSurfaceIndex) const;
-	float3     QuerySurfaceNormal(int nSectorIndex, int nSurfaceIndex) const;
-	float3     QuerySurfaceVertex(int nSectorIndex, int nSurfaceIndex, int nVertexIndex) const;
-
 	// fetches the level header and preloads the master cmp if there is one
 	void       PreloadMasterCMP();
 

@@ -203,6 +203,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="GpuBuffer.cpp" />
+    <ClCompile Include="Jed.cpp" />
     <ClCompile Include="Light Baker.cpp" />
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
@@ -227,6 +228,7 @@
     <ClInclude Include="framework.h" />
     <ClInclude Include="GpuBuffer.h" />
     <ClInclude Include="IJed.h" />
+    <ClInclude Include="Jed.h" />
     <ClInclude Include="Light Baker.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="Resource.h" />
