@@ -68,9 +68,12 @@ enum ELightBakeFlags
 // Gpu surface flags
 enum ESurfaceFlags
 {
-	ESurface_IsSky         = 0x1,
-	ESurface_IsVisible     = 0x2,
-	ESurface_IsTranslucent = 0x4,
+	ESurface_IsHorizonSky  = 0x1,
+	ESurface_IsCeilingSky  = 0x2,
+	ESurface_IsVisible     = 0x4,
+	ESurface_IsTranslucent = 0x8,
+
+	ESurface_IsSky = ESurface_IsHorizonSky | ESurface_IsCeilingSky
 };
 
 // Engine/editor sector flags

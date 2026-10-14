@@ -35,6 +35,12 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 			if((g_levelInfo.nBakeFlags & ELightBake_Sky) && (hitFlags & ESurface_IsSky))
 			{
 				color = aLights[g_levelInfo.nSkyLightIndex].color;
+                
+                // for ceiling skies, attenuate by angle to the ceiling plane (which is always pointing straight down)
+                if (hitFlags & ESurface_IsCeilingSky)
+                {
+                    payload.attenuation *= saturate(rayDir.z * 100.0);
+                }
 			}
 			else if((g_levelInfo.nBakeFlags & ELightBake_Emissive) && (hitFlags & ESurface_IsVisible))
 			{

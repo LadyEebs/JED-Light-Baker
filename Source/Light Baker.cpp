@@ -735,8 +735,10 @@ void CLightBakerDlg::BuildGeometry()
 			// if a surface is set to block light, then ignore the adjoin value
 			pSurface->nAdjoinSector = nAdjoinSector;
 			pSurface->nFlags = QuerySurfaceVisible(nSectorIndex, nSurfaceIndex) ? ESurface_IsVisible : 0;
-			if (((surface.surfflags & ESky_Horizon) != 0) || ((surface.surfflags & ESky_Ceiling) != 0))
-				pSurface->nFlags |= ESurface_IsSky;
+			if (surface.surfflags & ESky_Horizon)
+				pSurface->nFlags |= ESurface_IsHorizonSky;
+			if (surface.surfflags & ESky_Ceiling)
+				pSurface->nFlags |= ESurface_IsCeilingSky;
 			if (surface.faceflags & EFace_Translucent)
 				pSurface->nFlags |= ESurface_IsTranslucent;
 

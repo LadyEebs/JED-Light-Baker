@@ -12,9 +12,11 @@ static const uint ELightBake_ToneMap            = 0x200;
 static const uint ELightBake_PhysicalFalloff    = 0x400;
 
 // must match ESurfaceFlags
-static const uint ESurface_IsSky         = 0x1;
-static const uint ESurface_IsVisible     = 0x2;
-static const uint ESurface_IsTranslucent = 0x4;
+static const uint ESurface_IsHorizonSky  = 0x1;
+static const uint ESurface_IsCeilingSky  = 0x2;
+static const uint ESurface_IsVisible     = 0x4;
+static const uint ESurface_IsTranslucent = 0x8;
+static const uint ESurface_IsSky = ESurface_IsHorizonSky | ESurface_IsCeilingSky;
 
 // must match ELightFlags
 static const uint ELight_NotBlocked = 0x1;
