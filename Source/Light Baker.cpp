@@ -384,7 +384,7 @@ void CLightBakerDlg::OnShowWindow(BOOL bShow, UINT nStatus)
 	CDialogEx::OnShowWindow(bShow, nStatus);
 	if (bShow)
 	{
-		//LoadSettings(GetOrCreateSettingsCog());
+		LoadSettings(GetOrCreateSettingsCog());
 	}
 	else
 	{
@@ -1710,7 +1710,10 @@ int CLightBakerDlg::GetOrCreateSettingsCog()
 		nSettingsCogIndex = m_pJed->GetLevel()->AddCOG(const_cast<char*>(kBakerCogName));
 	
 	if (m_pJed->GetLevel()->NCOGValues(nSettingsCogIndex) != ESettings_Count)
+	{
+		m_pJed->GetLevel()->DeleteCOG(nSettingsCogIndex);
 		return -1;
+	}
 	
 	// for whatever reason the Jed API's AddCOG doesn't initialize the symbols from the values in the cog so set them here
 	auto setSettingsValue = [&] (int nIndex, int nValue)
