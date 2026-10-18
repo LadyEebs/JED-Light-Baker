@@ -145,6 +145,25 @@ float SPolygon::Area() const
 	return area;
 }
 
+bool SPolygon::IsDegenerate(float epsilon) const
+{
+	const size_t n = vertices.size();
+	if (n < 3)
+		return true;
+
+	const float epsilonSq = epsilon * epsilon;
+	for (size_t i = 0; i < n; ++i)
+	{
+		const float3& p1 = vertices[i];
+		const float3& p2 = vertices[(i + 1) % n];
+		const float3& p3 = vertices[(i + 2) % n];
+		float3 cp = cross(p2 - p1, p3 - p2);
+		if (dot(cp, cp) > epsilonSq)
+			return false;
+	}
+	return true;
+}
+
 namespace Geo
 {
 	bool PointLiesOnLine(const float3& point, const float3& lineStart, const float3& lineEnd)

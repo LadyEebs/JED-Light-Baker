@@ -32,6 +32,8 @@ struct SPolygon
 	float3 Centroid() const;
 	float Area() const;
 
+	bool IsDegenerate(float epsilon = 1e-5f) const;
+
 	std::vector<float3> vertices;
 };
 
