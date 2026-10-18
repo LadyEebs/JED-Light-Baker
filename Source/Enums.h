@@ -100,3 +100,26 @@ enum EMaterialRecordType
 	EMaterialRecordType_Color = 0,
 	EMaterialRecordType_Texture = 0x8,
 };
+
+// Must match order of variables in defaultCogContent
+enum ESettings
+{
+	ESetting_BakePointLights,
+	ESetting_AllowSunLightCleave,
+	ESetting_AllowLightCleave,
+	ESetting_BakeSunLight,
+	ESetting_BakeSkyLight,
+	ESetting_BakeEmissiveLight,
+	ESetting_BakeIndirectLight,
+	ESetting_GammaCorrect,
+	ESetting_ExtraLightEmissive,
+	ESetting_PhysicalFalloff,
+	ESetting_ToneMap,
+	ESetting_SkyColorFromMaterials,
+	ESetting_SkyEmissiveRayCount,
+	ESetting_IndirectRayCount,
+	ESetting_IndirectBounces,
+	ESetting_NormalSmoothingAngle,
+
+	ESettings_Count
+};

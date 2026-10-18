@@ -7,9 +7,36 @@
 #include "HWTypes.h"
 #include "CleaveLight.h"
 
+#include <filesystem>
+#include <fstream>
+
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
+
+static constexpr const char* kBakerCogName = "light_baker_settings.cog";
+static const char* defaultCogContent =R"(# dummy cog for light baker settings serialization, does nothing at runtime
+symbols
+	int bake_point_lights=1 desc="Whether to bake point lights"
+	int allow_sun_light_cleave=0 desc="Whether to allow sun light cleaving"
+	int allow_light_cleave=0 desc="Whether to allow point light cleaving"
+	int bake_sun_light=1 desc="Whether to bake sun light"
+	int bake_sky_light=1 desc="Whether to bake sky light"
+	int bake_emissive_light=1 desc="Whether to bake emissive light"
+	int bake_indirect_light=1 desc="Whether to bake indirect light"
+	int gamma_correct=1 desc="Whether to apply gamma correction to the baked lightmaps"
+	int extra_light_emissive=0 desc="Whether to add extra emissive light to the baked lightmaps"
+	int physical_falloff=1 desc="Whether to use physical falloff for point lights"
+	int tone_map=0 desc="Whether to apply tone mapping to the baked lightmaps"
+	int sky_color_from_materials=0 desc="Whether to use the sky color from materials instead of a fixed color"
+	int sky_emissive_ray_count=1024 desc="Number of rays to trace for sky and emissive light"
+	int indirect_ray_count=1024 desc="Number of rays to trace for indirect light"
+	int indirect_bounces=3 desc="Number of bounces for indirect light"
+	int normal_smoothing_angle=35 desc="Angle threshold for normal smoothing"
+end
+code
+end
+)";
 
 // GI defaults
 static constexpr int kDefIndirectBounces = 3;
@@ -152,8 +179,6 @@ int CLightBakerApp::ExitInstance()
 CLightBakerDlg::CLightBakerDlg(IJED* pJed, CWnd* pParent)
 	: CDialogEx(IDD_LIGHTBAKER_DLG, pParent)
 	, m_pJed(pJed)
-	, m_pJedLevel(nullptr)
-	, m_pLastJedLevel(nullptr)
 	, m_pDeviceD3D(nullptr)
 	, m_pDeviceContextD3D(nullptr)
 	, m_pBakeSunShader(nullptr)
@@ -354,7 +379,35 @@ BOOL CLightBakerDlg::OnInitDialog()
 	return TRUE;
 }
 
+void CLightBakerDlg::OnShowWindow(BOOL bShow, UINT nStatus)
+{
+	CDialogEx::OnShowWindow(bShow, nStatus);
+	if (bShow)
+	{
+		//LoadSettings(GetOrCreateSettingsCog());
+	}
+	else
+	{
+		// clear resource caches on close so we can reload mising mats on next open
+		m_materialColorCache.clear();
+		m_colormapCache.clear();
+		//SaveSettings(GetOrCreateSettingsCog());
+	}
+}
+
+void CLightBakerDlg::OnClose()
+{
+	CDialogEx::OnClose();
+	
+	// clear resource caches on close so we can reload mising mats on next open
+	m_materialColorCache.clear();
+	m_colormapCache.clear();
+	//SaveSettings(GetOrCreateSettingsCog());
+}
+
 BEGIN_MESSAGE_MAP(CLightBakerDlg, CDialogEx)
+	ON_WM_SHOWWINDOW()
+	ON_WM_CLOSE()
 	ON_BN_CLICKED(IDC_BUTTON_BAKE_ALL, &CLightBakerDlg::OnBnClickedBakeAll)
 	ON_BN_CLICKED(IDC_BUTTON_BAKE_SEL, &CLightBakerDlg::OnBnClickedBakeSelected)
 	ON_BN_CLICKED(IDC_BUTTON_BAKE_LAYERS, &CLightBakerDlg::OnBnClickedBakeVisibleLayers)
@@ -365,6 +418,8 @@ BEGIN_MESSAGE_MAP(CLightBakerDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_ANCHORLIGHT_BUTTON, &CLightBakerDlg::OnBnClickedAnchorlightButton)
 	ON_BN_CLICKED(IDC_CLEAVE_ALL_BUTTON, &CLightBakerDlg::OnBnClickedCleaveAllButton)
 	ON_BN_CLICKED(IDC_CLEAR_CACHES, &CLightBakerDlg::OnBnClickedClearCachesButton)
+	ON_BN_CLICKED(IDC_SAVE_BAKER_SETTINGS, &CLightBakerDlg::OnBnClickedSaveSettingsButton)
+	ON_BN_CLICKED(IDC_LOAD_BAKER_SETTINGS, &CLightBakerDlg::OnBnClickedLoadSettingsButton)
 END_MESSAGE_MAP()
 
 void CLightBakerDlg::SelectOrCreateLight(int nLightFlags, float intensity, const float3& rgb, float rgbIntensity)
@@ -374,19 +429,13 @@ void CLightBakerDlg::SelectOrCreateLight(int nLightFlags, float intensity, const
 	if (!m_pJed)
 		return;
 
-	if (!m_pJedLevel)
-		m_pJedLevel = m_pJed->GetLevel();
-
-	if (!m_pJedLevel)
-		return;
-
 	// find the first existing light with the specified flags (if one exists)
-	int nNumLights = m_pJedLevel->NLights();
+	int nNumLights = m_pJed->GetLevel()->NLights();
 	for (int i = 0; i < nNumLights; ++i)
 	{
 		tjedlightrec light;
 		memset(&light, 0, sizeof(tjedlightrec));
-		if (FAILED(m_pJedLevel->GetLight(i, &light, lt_flags)))
+		if (FAILED(m_pJed->GetLevel()->GetLight(i, &light, lt_flags)))
 			continue;
 		if (light.flags & nLightFlags)
 		{
@@ -406,8 +455,8 @@ void CLightBakerDlg::SelectOrCreateLight(int nLightFlags, float intensity, const
 		light.b = 1.0;
 		light.rgbintensity = 1.0;
 		light.flags = nLightFlags;
-		nLightIndex = m_pJedLevel->AddLight();
-		m_pJedLevel->SetLight(nLightIndex, &light, lt_all);
+		nLightIndex = m_pJed->GetLevel()->AddLight();
+		m_pJed->GetLevel()->SetLight(nLightIndex, &light, lt_all);
 	}
 	
 	// select the light in Jed
@@ -437,16 +486,10 @@ afx_msg void CLightBakerDlg::OnBnClickedCleaveAllButton()
 	if (!m_pJed)
 		return;
 
-	if (!m_pJedLevel)
-		m_pJedLevel = m_pJed->GetLevel();
-
-	if (!m_pJedLevel)
-		return;
-	
 	if (FAILED(m_pJed->StartUndo(const_cast<char*>("Light Baker Cleave All"))))
 		return;
 
-	const int nNumSectors = m_pJedLevel->NSectors();
+	const int nNumSectors = m_pJed->GetLevel()->NSectors();
 	for (int nSectorIndex = 0; nSectorIndex < nNumSectors; ++nSectorIndex)
 		m_pJed->SaveUndoForSector(nSectorIndex, uc_changed, sc_geometry);
 
@@ -458,6 +501,18 @@ afx_msg void CLightBakerDlg::OnBnClickedClearCachesButton()
 	m_materialColorCache.clear();
 	m_colormapCache.clear();
 	Jed::PrintMessage(m_pJed, msg_info, "Cleared material and colormap caches.");
+}
+
+afx_msg void CLightBakerDlg::OnBnClickedSaveSettingsButton()
+{
+	UpdateData(TRUE);
+	SaveSettings(GetOrCreateSettingsCog());
+}
+
+afx_msg void CLightBakerDlg::OnBnClickedLoadSettingsButton()
+{
+	LoadSettings(GetOrCreateSettingsCog());
+	UpdateData(FALSE);
 }
 
 afx_msg void CLightBakerDlg::OnBnClickedBakeAll()
@@ -511,24 +566,13 @@ bool CLightBakerDlg::BakeLighting(uint32_t nInitBakeFlags)
 	m_nBakeFlags |= m_bPhysicalFalloff ? ELightBake_PhysicalFalloff : 0;
 	m_nBakeFlags |= m_bToneMap ? ELightBake_ToneMap : 0;
 	m_nBakeFlags |= m_bSkyColorFromMaterials ? ELightBake_SkyColorFromMaterial : 0;
-	
-	m_pJedLevel = m_pJed->GetLevel();
-	if (!m_pJedLevel)
-		return false;
 
-	if (m_pLastJedLevel != m_pJedLevel)
-	{
-		// clear resource caches on any level changes so we can reload mising mats
-		m_materialColorCache.clear();
-		m_colormapCache.clear();
-	}
-	m_pLastJedLevel = m_pJedLevel;
 
 	if (FAILED(m_pJed->StartUndo(const_cast<char*>("Light Baker"))))
 		return false;
 
 	// Save undo
-	const int nNumSectors = m_pJedLevel->NSectors();
+	const int nNumSectors = m_pJed->GetLevel()->NSectors();
 	for (int nSectorIndex = 0; nSectorIndex < nNumSectors; ++nSectorIndex)
 	{
 		m_pJed->SaveUndoForSector(nSectorIndex, uc_changed, sc_geometry);
@@ -542,9 +586,9 @@ bool CLightBakerDlg::BakeLighting(uint32_t nInitBakeFlags)
 			return false;
 	}
 
-	m_nNumLayers = m_pJedLevel->NLayers();
+	m_nNumLayers = m_pJed->GetLevel()->NLayers();
 
-	m_nNumSectors = m_pJedLevel->NSectors();
+	m_nNumSectors = m_pJed->GetLevel()->NSectors();
 	m_nNumQueuedSectors = (m_nBakeFlags & ELightBake_Selected) ? m_pJed->GetNMultiselected(MM_SC) : m_nNumSectors;
 	if (!m_nNumQueuedSectors)
 	{
@@ -552,7 +596,7 @@ bool CLightBakerDlg::BakeLighting(uint32_t nInitBakeFlags)
 		return false;
 	}
 
-	m_nNumLights = m_pJedLevel->NLights();
+	m_nNumLights = m_pJed->GetLevel()->NLights();
 	if (!m_nNumLights)
 	{
 		Jed::PrintMessage(m_pJed, msg_info, "No lights available for baking.");
@@ -568,11 +612,11 @@ bool CLightBakerDlg::BakeLighting(uint32_t nInitBakeFlags)
 	m_nTotalVertices = 0;
 	for (int nSectorIndex = 0; nSectorIndex < m_nNumSectors; ++nSectorIndex)
 	{
-		const int nNumSurfaces = m_pJedLevel->SectorNSurfaces(nSectorIndex);
+		const int nNumSurfaces = m_pJed->GetLevel()->SectorNSurfaces(nSectorIndex);
 		m_nTotalSurfaces += nNumSurfaces;
 		for (int nSurfaceIndex = 0; nSurfaceIndex < nNumSurfaces; ++nSurfaceIndex)
 		{
-			const int nNumVertices = m_pJedLevel->SurfaceNVertices(nSectorIndex, nSurfaceIndex);
+			const int nNumVertices = m_pJed->GetLevel()->SurfaceNVertices(nSectorIndex, nSurfaceIndex);
 			m_nTotalVertices += nNumVertices;
 		}
 	}
@@ -631,7 +675,7 @@ void CLightBakerDlg::PreloadMasterCMP()
 {
 	tlevelheader levelHeader;
 	memset(&levelHeader, 0, sizeof(tlevelheader));
-	m_pJedLevel->GetLevelHeader(&levelHeader, lh_all);
+	m_pJed->GetLevel()->GetLevelHeader(&levelHeader, lh_all);
 	LoadColormap(levelHeader.mastercmp);
 }
 
@@ -735,7 +779,7 @@ void CLightBakerDlg::BuildLights()
 	{
 		tjedlightrec light;
 		memset(&light, 0, sizeof(tjedlightrec));
-		m_pJedLevel->GetLight(nLightIndex, &light, lt_all);
+		m_pJed->GetLevel()->GetLight(nLightIndex, &light, lt_all);
 		
 		if (m_nBakeFlags & ELightBake_GammaCorrect)
 		{
@@ -787,11 +831,11 @@ void CLightBakerDlg::BuildGeometry()
 		uint32_t nVertexOffset = 0;
 		for (int nSectorIndex = 0; nSectorIndex < m_nNumSectors; ++nSectorIndex)
 		{
-			const int nNumSurfaces = m_pJedLevel->SectorNSurfaces(nSectorIndex);
+			const int nNumSurfaces = m_pJed->GetLevel()->SectorNSurfaces(nSectorIndex);
 
 			tjedsectorrec sector;
 			memset(&sector, 0, sizeof(tjedsectorrec));
-			m_pJedLevel->GetSector(nSectorIndex, &sector, s_all);
+			m_pJed->GetLevel()->GetSector(nSectorIndex, &sector, s_all);
 			SColormap* pColormap = LoadColormap(sector.colormap);
 		
 			tjedbox box;
@@ -812,10 +856,10 @@ void CLightBakerDlg::BuildGeometry()
 			{
 				tjedsurfacerec surface;
 				memset(&surface, 0, sizeof(tjedsurfacerec));
-				if (FAILED(m_pJedLevel->GetSurface(nSectorIndex, nSurfaceIndex, &surface, sf_all)))
+				if (FAILED(m_pJed->GetLevel()->GetSurface(nSectorIndex, nSurfaceIndex, &surface, sf_all)))
 					continue;
 
-				std::optional<float3> normalOpt = Jed::QuerySurfaceNormal(m_pJedLevel, nSectorIndex, nSurfaceIndex);
+				std::optional<float3> normalOpt = Jed::QuerySurfaceNormal(m_pJed->GetLevel(), nSectorIndex, nSurfaceIndex);
 				if (!normalOpt.has_value())
 					continue;
 				float3 normal = normalOpt.value();
@@ -833,7 +877,7 @@ void CLightBakerDlg::BuildGeometry()
 				const bool bHasAdjoin = (nAdjoinSector >= 0);
 				uint32_t nDstIndex = bHasAdjoin ? nAdjoinCursor++ : nSolidCursor--;
 			
-				const int nNumVertices = m_pJedLevel->SurfaceNVertices(nSectorIndex, nSurfaceIndex);
+				const int nNumVertices = m_pJed->GetLevel()->SurfaceNVertices(nSectorIndex, nSurfaceIndex);
 
 				SSurface* pSurface = &surfaces[nDstIndex];
 				pSurface->nFirstVertex = nVertexOffset;
@@ -882,7 +926,7 @@ void CLightBakerDlg::BuildGeometry()
 
 				// if a surface is set to block light, then ignore the adjoin value
 				pSurface->nAdjoinSector = nAdjoinSector;
-				pSurface->nFlags = Jed::QuerySurfaceVisible(m_pJedLevel, nSectorIndex, nSurfaceIndex) ? EGpuSurface_IsVisible : 0;
+				pSurface->nFlags = Jed::QuerySurfaceVisible(m_pJed->GetLevel(), nSectorIndex, nSurfaceIndex) ? EGpuSurface_IsVisible : 0;
 				if (surface.surfflags & ESurface_Horizon)
 					pSurface->nFlags |= EGpuSurface_IsHorizonSky;
 				if (surface.surfflags & ESurface_Ceiling)
@@ -892,7 +936,7 @@ void CLightBakerDlg::BuildGeometry()
 
 				for (int nVertexIndex = 0; nVertexIndex < nNumVertices; ++nVertexIndex)
 				{
-					std::optional<float3> vertexOpt = Jed::QuerySurfaceVertex(m_pJedLevel, nSectorIndex, nSurfaceIndex, nVertexIndex);
+					std::optional<float3> vertexOpt = Jed::QuerySurfaceVertex(m_pJed->GetLevel(), nSectorIndex, nSurfaceIndex, nVertexIndex);
 					if (!vertexOpt.has_value())
 						continue;
 					float3 vertex = vertexOpt.value();
@@ -1240,7 +1284,7 @@ void CLightBakerDlg::DownloadAndApplyToLevel()
 		const uint32_t nLocalSurfaceIndex = vertices[nVertexIndex].nLocalSurfaceIndex;
 		const uint32_t nLocalVertexIndex = vertices[nVertexIndex].nLocalVertexIndex;
 
-		m_pJedLevel->SurfaceSetVertexLight(nSectorIndex, nLocalSurfaceIndex, nLocalVertexIndex, color.w, color.x, color.y, color.z);
+		m_pJed->GetLevel()->SurfaceSetVertexLight(nSectorIndex, nLocalSurfaceIndex, nLocalVertexIndex, color.w, color.x, color.y, color.z);
 	}
 
 	// TODO: do this on gpu
@@ -1254,25 +1298,25 @@ void CLightBakerDlg::DownloadAndApplyToLevel()
 		float4 ambientColor = { 0,0,0,0 };
 		float totalAmbient = 0.0f;
 
-		const int nNumSurfaces = m_pJedLevel->SectorNSurfaces(nSectorIndex);
+		const int nNumSurfaces = m_pJed->GetLevel()->SectorNSurfaces(nSectorIndex);
 		for (int nSurfaceIndex = 0; nSurfaceIndex < nNumSurfaces; ++nSurfaceIndex)
 		{
-			const int nNumVertices = m_pJedLevel->SurfaceNVertices(nSectorIndex, nSurfaceIndex);
+			const int nNumVertices = m_pJed->GetLevel()->SurfaceNVertices(nSectorIndex, nSurfaceIndex);
 			for (int nVertexIndex = 0; nVertexIndex < nNumVertices; ++nVertexIndex)
 			{
 				float r, g, b, a;
-				m_pJedLevel->SurfaceGetVertexLight(nSectorIndex, nSurfaceIndex, nVertexIndex, &a, &r, &g, &b);
+				m_pJed->GetLevel()->SurfaceGetVertexLight(nSectorIndex, nSurfaceIndex, nVertexIndex, &a, &r, &g, &b);
 
 				ambientColor += float4(r, g, b, a);
 				totalAmbient += 1.0f;
 			}
-			m_pJedLevel->SurfaceUpdate(nSectorIndex, nSurfaceIndex, 0);
+			m_pJed->GetLevel()->SurfaceUpdate(nSectorIndex, nSurfaceIndex, 0);
 		}
 
 		// update sector ambient if needed
 		tjedsectorrec sector;
 		memset(&sector, 0, sizeof(tjedsectorrec));
-		m_pJedLevel->GetSector(nSectorIndex, &sector, s_flags | s_ambient);
+		m_pJed->GetLevel()->GetSector(nSectorIndex, &sector, s_flags | s_ambient);
 		if (!(sector.flags & ESector_NoAmbientLightRGB) && !(sector.flags & ESector_NoAmbientLight))
 		{
 			float invTotalAmbient = totalAmbient < 1e-5f ? 0.0f : 1.0f / totalAmbient;
@@ -1280,10 +1324,10 @@ void CLightBakerDlg::DownloadAndApplyToLevel()
 
 			// TODO: SED has rgb ambient for Jones?
 			sector.ambient = ambientColor.w;
-			m_pJedLevel->SetSector(nSectorIndex, &sector, s_ambient);
+			m_pJed->GetLevel()->SetSector(nSectorIndex, &sector, s_ambient);
 		}
 
-		m_pJedLevel->SectorUpdate(nSectorIndex);
+		m_pJed->GetLevel()->SectorUpdate(nSectorIndex);
 	}
 }
 
@@ -1428,7 +1472,7 @@ uint32_t CLightBakerDlg::LoadMaterialFillColor(const wchar_t* sFileName, const S
 
 bool CLightBakerDlg::CleavePrepass(bool bWarnUser)
 {
-	const int nNumLights = m_pJedLevel->NLights();
+	const int nNumLights = m_pJed->GetLevel()->NLights();
 
 	// check that we actually have a light to cleave, we'll need to warn the user if so (and can skip this if none)
 	bool bHasCleave = false;
@@ -1436,7 +1480,7 @@ bool CLightBakerDlg::CleavePrepass(bool bWarnUser)
 	{
 		tjedlightrec light;
 		memset(&light, 0, sizeof(tjedlightrec));
-		if (FAILED(m_pJedLevel->GetLight(nLightIndex, &light, lt_flags)))
+		if (FAILED(m_pJed->GetLevel()->GetLight(nLightIndex, &light, lt_flags)))
 			continue;
 
 		// skip lights that don't cleave
@@ -1482,10 +1526,10 @@ bool CLightBakerDlg::CleavePrepass(bool bWarnUser)
 	{
 		tjedlightrec light;
 		memset(&light, 0, sizeof(tjedlightrec));
-		if (FAILED(m_pJedLevel->GetLight(nLightIndex, &light, lt_all)))
+		if (FAILED(m_pJed->GetLevel()->GetLight(nLightIndex, &light, lt_all)))
 			continue;
 
-		CCleaveLight pass(m_pJed, m_pJedLevel, m_nBakeFlags);
+		CCleaveLight pass(m_pJed, m_pJed->GetLevel(), m_nBakeFlags);
 		pass.PrepareGeometry(light, m_selectedSectorBitmask);
 	}
 
@@ -1507,7 +1551,7 @@ void CLightBakerDlg::SplitLargeSurfaces()
 	int nNumSplitSurfaces = 0;
 	bool bFoundLargeSurface = false;
 
-	const int nNumSectors = m_pJedLevel->NSectors();
+	const int nNumSectors = m_pJed->GetLevel()->NSectors();
 	const int nPasses = 10;
 	for (int nPass = 0; nPass < nPasses; ++nPass)
 	{
@@ -1516,19 +1560,19 @@ void CLightBakerDlg::SplitLargeSurfaces()
 		for (int nSectorIndex = 0; nSectorIndex < nNumSectors; ++nSectorIndex)
 		{
 			int nSurfacesAdded = 0; // track how many surfaces were added to avoid spinning forever
-			int nNumSurfaces = m_pJedLevel->SectorNSurfaces(nSectorIndex);
+			int nNumSurfaces = m_pJed->GetLevel()->SectorNSurfaces(nSectorIndex);
 			for (int nSurfaceIndex = 0; nSurfaceIndex < nNumSurfaces && nSurfacesAdded < 1000; ++nSurfaceIndex)
 			{
-				if (m_pJedLevel->SurfaceNVertices(nSectorIndex, nSurfaceIndex) <= 24)
+				if (m_pJed->GetLevel()->SurfaceNVertices(nSectorIndex, nSurfaceIndex) <= 24)
 					continue;
 
 				bFoundLargeSurface = true;
 
 				tjedsurfacerec source{};
-				if (FAILED(m_pJedLevel->GetSurface(nSectorIndex, nSurfaceIndex, &source, sf_all)))
+				if (FAILED(m_pJed->GetLevel()->GetSurface(nSectorIndex, nSurfaceIndex, &source, sf_all)))
 					continue;
 
-				const int nNumVertices = m_pJedLevel->SurfaceNVertices(nSectorIndex, nSurfaceIndex);
+				const int nNumVertices = m_pJed->GetLevel()->SurfaceNVertices(nSectorIndex, nSurfaceIndex);
 				if (nNumVertices < 3)
 					continue;
 
@@ -1536,12 +1580,12 @@ void CLightBakerDlg::SplitLargeSurfaces()
 				if (FAILED(m_pJed->FindSurfaceCenter(nSectorIndex, nSurfaceIndex, &cx, &cy, &cz)))
 					continue;
 
-				std::optional<float3> normalOpt = Jed::QuerySurfaceNormal(m_pJedLevel, nSectorIndex, nSurfaceIndex);
+				std::optional<float3> normalOpt = Jed::QuerySurfaceNormal(m_pJed->GetLevel(), nSectorIndex, nSurfaceIndex);
 				if (!normalOpt.has_value())
 					continue;
 				float3 faceNormal = normalOpt.value();
 
-				std::optional<float3> splitVertexOpt = Jed::QuerySurfaceVertex(m_pJedLevel, nSectorIndex, nSurfaceIndex, nNumVertices / 2);
+				std::optional<float3> splitVertexOpt = Jed::QuerySurfaceVertex(m_pJed->GetLevel(), nSectorIndex, nSurfaceIndex, nNumVertices / 2);
 				if (!splitVertexOpt.has_value())
 					continue;
 				float3 splitVertex = splitVertexOpt.value();
@@ -1551,10 +1595,10 @@ void CLightBakerDlg::SplitLargeSurfaces()
 				if (nNewSurfaceIndex < 0 || source.adjoinsc < 0 || source.adjoinsf < 0)
 					continue;
 
-				Jed::PropagateGeoAfterCleave(m_pJedLevel, nSectorIndex, nSurfaceIndex, nNewSurfaceIndex, source);
+				Jed::PropagateGeoAfterCleave(m_pJed->GetLevel(), nSectorIndex, nSurfaceIndex, nNewSurfaceIndex, source);
 
 				// update the number of surfaces for this sector since we just added one and we'll want to process it too
-				nNumSurfaces = m_pJedLevel->SectorNSurfaces(nSectorIndex);
+				nNumSurfaces = m_pJed->GetLevel()->SectorNSurfaces(nSectorIndex);
 
 				nSurfacesAdded++;
 
@@ -1578,21 +1622,21 @@ void CLightBakerDlg::FixupCogLinkedSurfaces()
 	int nNumSurfacesUpdated = 0;
 
 	// scan cogs for linked surfaces and correctly mark them as cog linked so that the cleave tool doesn't break them
-	const int nNumCogs = m_pJedLevel->NCOgs();
+	const int nNumCogs = m_pJed->GetLevel()->NCOgs();
 	for (int nCogIndex = 0; nCogIndex < nNumCogs; ++nCogIndex)
 	{
-		const int nNumValues = m_pJedLevel->NCOGValues(nCogIndex);
+		const int nNumValues = m_pJed->GetLevel()->NCOGValues(nCogIndex);
 		for (int nValueIndex = 0; nValueIndex < nNumValues; ++nValueIndex)
 		{
-			const int nCogValueType = m_pJedLevel->GetCOGValueType(nCogIndex, nValueIndex);
+			const int nCogValueType = m_pJed->GetLevel()->GetCOGValueType(nCogIndex, nValueIndex);
 			if (nCogValueType == ct_surface)
 			{
-				const char* sValue = m_pJedLevel->GetCOGValue(nCogIndex, nValueIndex);
+				const char* sValue = m_pJed->GetLevel()->GetCOGValue(nCogIndex, nValueIndex);
 				if (sValue)
 				{
 					// surface references return the global surface number
 					int nGlobalSurfaceIndex = atoi(sValue);
-					auto sectorSurface = Jed::GetSectorSurfaceFromGlobalSurface(m_pJedLevel, nGlobalSurfaceIndex);
+					auto sectorSurface = Jed::GetSectorSurfaceFromGlobalSurface(m_pJed->GetLevel(), nGlobalSurfaceIndex);
 					if (sectorSurface.has_value())
 					{
 						int nSectorIndex = sectorSurface->first;
@@ -1600,10 +1644,10 @@ void CLightBakerDlg::FixupCogLinkedSurfaces()
 
 						tjedsurfacerec surface;
 						memset(&surface, 0, sizeof(tjedsurfacerec));
-						if (SUCCEEDED(m_pJedLevel->GetSurface(nSectorIndex, nSurfaceIndex, &surface, sf_SurfFlags)))
+						if (SUCCEEDED(m_pJed->GetLevel()->GetSurface(nSectorIndex, nSurfaceIndex, &surface, sf_SurfFlags)))
 						{
 							surface.surfflags |= ESurface_CogLinked;
-							m_pJedLevel->SetSurface(nSectorIndex, nSurfaceIndex, &surface, sf_SurfFlags);
+							m_pJed->GetLevel()->SetSurface(nSectorIndex, nSurfaceIndex, &surface, sf_SurfFlags);
 
 							nNumSurfacesUpdated++;
 						}
@@ -1615,6 +1659,123 @@ void CLightBakerDlg::FixupCogLinkedSurfaces()
 
 	if (nNumSurfacesUpdated > 0)
 		Jed::PrintMessage(m_pJed, msg_info, "Set CogLinked flag on %d surfaces.", nNumSurfacesUpdated);
+}
+
+int CLightBakerDlg::GetOrCreateSettingsCog()
+{
+	// make sure the cog file exists
+	std::filesystem::path path = m_pJed->GetJEDString(js_ProjectDir);
+	if (path.empty())
+		return -1;
+	path /= "cog/" + std::string(kBakerCogName);
+
+	if (!std::filesystem::exists(path))
+	{		
+		std::ofstream ofs(path, std::ios::out | std::ios::trunc);
+		if (ofs)
+		{
+			ofs << defaultCogContent;
+		}
+	}
+
+	int nSettingsCogIndex = -1;
+
+	int nNumCogs = m_pJed->GetLevel()->NCOgs();
+	for (int nCogIndex = 0; nCogIndex < nNumCogs; ++nCogIndex)
+	{
+		char* cogName = m_pJed->GetLevel()->GetCOGFileName(nCogIndex);
+		if (cogName && strcmp(kBakerCogName, cogName) == 0)
+		{
+			nSettingsCogIndex = nCogIndex;
+			break;
+		}
+	}
+
+	if (nSettingsCogIndex < 0)
+			nSettingsCogIndex = m_pJed->GetLevel()->AddCOG(const_cast<char*>(kBakerCogName));
+	
+	if (m_pJed->GetLevel()->NCOGValues(nSettingsCogIndex) != ESettings_Count)
+		return -1;
+	
+	// for whatever reason the Jed API's AddCOG doesn't initialize the symbols from the values in the cog so set them here
+	auto setSettingsValue = [&] (int nIndex, int nValue)
+	{
+		m_pJed->GetLevel()->SetCOGValue(nSettingsCogIndex, nIndex, const_cast<char*>(std::to_string(nValue).c_str()));
+	};
+	setSettingsValue(ESetting_BakePointLights, 1);
+	setSettingsValue(ESetting_AllowSunLightCleave, 0);
+	setSettingsValue(ESetting_AllowLightCleave, 0);
+	setSettingsValue(ESetting_BakeSunLight, 1);
+	setSettingsValue(ESetting_BakeSkyLight, 1);
+	setSettingsValue(ESetting_BakeEmissiveLight, 1);
+	setSettingsValue(ESetting_BakeIndirectLight, 1);
+	setSettingsValue(ESetting_GammaCorrect, 1);
+	setSettingsValue(ESetting_ExtraLightEmissive, 0);
+	setSettingsValue(ESetting_PhysicalFalloff, 1);
+	setSettingsValue(ESetting_ToneMap, 0);
+	setSettingsValue(ESetting_SkyColorFromMaterials, 0);
+	setSettingsValue(ESetting_SkyEmissiveRayCount, 1024);
+	setSettingsValue(ESetting_IndirectRayCount, 1024);
+	setSettingsValue(ESetting_IndirectBounces, 3);
+	setSettingsValue(ESetting_NormalSmoothingAngle, 35);
+	return nSettingsCogIndex;
+}
+
+void CLightBakerDlg::SaveSettings(int nCogIndex)
+{
+	if (nCogIndex < 0)
+		return;
+
+	auto setSettingsValue = [&] (int nIndex, int nValue)
+	{
+		m_pJed->GetLevel()->SetCOGValue(nCogIndex, nIndex, const_cast<char*>(std::to_string(nValue).c_str()));
+	};
+	setSettingsValue(ESetting_BakePointLights, m_bBakePointLights);
+	setSettingsValue(ESetting_AllowSunLightCleave, m_bAllowSunLightCleave);
+	setSettingsValue(ESetting_AllowLightCleave, m_bAllowLightCleave);
+	setSettingsValue(ESetting_BakeSunLight, m_bBakeSunLight);
+	setSettingsValue(ESetting_BakeSkyLight, m_bBakeSkyLight);
+	setSettingsValue(ESetting_BakeEmissiveLight, m_bBakeEmissiveLight);
+	setSettingsValue(ESetting_BakeIndirectLight, m_bBakeIndirectLight);
+	setSettingsValue(ESetting_GammaCorrect, m_bGammaCorrect);
+	setSettingsValue(ESetting_ExtraLightEmissive, m_bExtraLightEmissive);
+	setSettingsValue(ESetting_PhysicalFalloff, m_bPhysicalFalloff);
+	setSettingsValue(ESetting_ToneMap, m_bToneMap);
+	setSettingsValue(ESetting_SkyColorFromMaterials, m_bSkyColorFromMaterials);
+	setSettingsValue(ESetting_SkyEmissiveRayCount, m_nSkyEmissiveRayCount);
+	setSettingsValue(ESetting_IndirectRayCount, m_nIndirectRayCount);
+	setSettingsValue(ESetting_IndirectBounces, m_nIndirectBounces);
+	setSettingsValue(ESetting_NormalSmoothingAngle, m_nNormalSmoothingAngle);
+}
+
+void CLightBakerDlg::LoadSettings(int nCogIndex)
+{
+	if (nCogIndex < 0)
+		return;
+
+	auto getSettingsValue = [&] (int nIndex, int& nValue)
+	{
+		char* valStr = m_pJed->GetLevel()->GetCOGValue(nCogIndex, nIndex);
+		if (valStr)
+			nValue = std::stoi(valStr);
+	};
+
+	getSettingsValue(ESetting_BakePointLights, m_bBakePointLights);
+	getSettingsValue(ESetting_AllowSunLightCleave, m_bAllowSunLightCleave);
+	getSettingsValue(ESetting_AllowLightCleave, m_bAllowLightCleave);
+	getSettingsValue(ESetting_BakeSunLight, m_bBakeSunLight);
+	getSettingsValue(ESetting_BakeSkyLight, m_bBakeSkyLight);
+	getSettingsValue(ESetting_BakeEmissiveLight, m_bBakeEmissiveLight);
+	getSettingsValue(ESetting_BakeIndirectLight, m_bBakeIndirectLight);
+	getSettingsValue(ESetting_GammaCorrect, m_bGammaCorrect);
+	getSettingsValue(ESetting_ExtraLightEmissive, m_bExtraLightEmissive);
+	getSettingsValue(ESetting_PhysicalFalloff, m_bPhysicalFalloff);
+	getSettingsValue(ESetting_ToneMap, m_bToneMap);
+	getSettingsValue(ESetting_SkyColorFromMaterials, m_bSkyColorFromMaterials);
+	getSettingsValue(ESetting_SkyEmissiveRayCount, m_nSkyEmissiveRayCount);
+	getSettingsValue(ESetting_IndirectRayCount, m_nIndirectRayCount);
+	getSettingsValue(ESetting_IndirectBounces, m_nIndirectBounces);
+	getSettingsValue(ESetting_NormalSmoothingAngle, m_nNormalSmoothingAngle);
 }
 
 extern "C"

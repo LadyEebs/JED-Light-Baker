@@ -35,6 +35,8 @@
 #define IDC_ANCHORLIGHT_BUTTON          1030
 #define IDC_CLEAVE_ALL_BUTTON           1031
 #define IDC_CLEAR_CACHES                1033
+#define IDC_SAVE_BAKER_SETTINGS         1034
+#define IDC_LOAD_BAKER_SETTINGS         1035
 #define IDD_LIGHTBAKER_DLG              2000
 #define IDC_CHECK_POINT                 2001
 #define IDC_CHECK_SUN                   2002

@@ -50,6 +50,8 @@ public:
 	int m_nIndirectBounces;
 	int m_nNormalSmoothingAngle;
 
+	afx_msg void OnShowWindow(BOOL bShow, UINT nStatus);
+	afx_msg void OnClose();
 	afx_msg void OnBnClickedBakeAll();
 	afx_msg void OnBnClickedBakeSelected();
 	afx_msg void OnBnClickedBakeVisibleLayers();
@@ -60,6 +62,8 @@ public:
 	afx_msg void OnBnClickedAnchorlightButton();
 	afx_msg void OnBnClickedCleaveAllButton();
 	afx_msg void OnBnClickedClearCachesButton();
+	afx_msg void OnBnClickedSaveSettingsButton();
+	afx_msg void OnBnClickedLoadSettingsButton();
 
 private:
 	// main entry point for baking process, everything below assumes flags etc are set
@@ -115,11 +119,13 @@ private:
 
 	void FixupCogLinkedSurfaces();
 
+	int GetOrCreateSettingsCog();
+	void SaveSettings(int nCogIndex);
+	void LoadSettings(int nCogIndex);
+
 private:
 	// Jed
 	IJED*      m_pJed;
-	IJEDLevel* m_pJedLevel;
-	IJEDLevel* m_pLastJedLevel;
 
 	// D3D
 	ID3D11Device*        m_pDeviceD3D;
