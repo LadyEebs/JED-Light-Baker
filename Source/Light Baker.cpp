@@ -1691,8 +1691,23 @@ int CLightBakerDlg::GetOrCreateSettingsCog()
 		}
 	}
 
+	if (nSettingsCogIndex >= 0)
+	{
+		// if the cog exists but doesn't have the right number of values, delete it and create a new one
+		if (m_pJed->GetLevel()->NCOGValues(nSettingsCogIndex) != ESettings_Count)
+		{
+			m_pJed->GetLevel()->DeleteCOG(nSettingsCogIndex);
+			nSettingsCogIndex = -1;
+		}
+		else
+		{
+			// return it, we don't need to setup defaults
+			return nSettingsCogIndex;
+		}
+	}
+
 	if (nSettingsCogIndex < 0)
-			nSettingsCogIndex = m_pJed->GetLevel()->AddCOG(const_cast<char*>(kBakerCogName));
+		nSettingsCogIndex = m_pJed->GetLevel()->AddCOG(const_cast<char*>(kBakerCogName));
 	
 	if (m_pJed->GetLevel()->NCOGValues(nSettingsCogIndex) != ESettings_Count)
 		return -1;
