@@ -1,6 +1,7 @@
 *.vsidx
 *.db
 *.json
+/.vs
 /Source/.vs
 /Source/Debug
 /Source/Light Baker/Release
