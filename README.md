@@ -1,7 +1,7 @@
 # JED-Light-Baker
 JED/SED Light Baker Plugin. Bakes lighting using crude/simple GPU accelerated ray tracing (not RTX/HW tracing). See bottom of readme for some image examples.
 
-<img width="714" height="609" alt="image" src="https://github.com/user-attachments/assets/99224f8e-f4dc-4e10-942b-27975e5a5cdf" />
+<img width="908" height="661" alt="image" src="https://github.com/user-attachments/assets/130f7d62-aebd-4ae4-8347-3b655391f091" />
 
 # Requirements
 - A Jed 0.951 compatible level editor (JED/ZEDNJED/SED)
@@ -11,7 +11,7 @@ JED/SED Light Baker Plugin. Bakes lighting using crude/simple GPU accelerated ra
 **Important** If you want to use RGB lighting, it's recommended to use a newer editor, like the latest NJed or SED, which fixes a bug in Jed's plugin system that caused lighting to turn teal.
 
 # Download & Installation
-[Download the latest](https://github.com/LadyEebs/JED-Light-Baker/releases/download/v1.0.0-beta.3/Light.Baker.zip) or head over to the [Releases](https://github.com/LadyEebs/JED-Light-Baker/releases) page to download the version of your choosing.
+[Download the latest](https://github.com/LadyEebs/JED-Light-Baker/releases/download/v2026.10.18.10/Light.Baker.2026-10-18-10.zip) or head over to the [Releases](https://github.com/LadyEebs/JED-Light-Baker/releases) page to download the version of your choosing.
 Once downloaded, head over to your editor installs plugins directory (ex: jed/plugins/), and extract the dll from the zip into that directory.
 
 If done successfully the Light Baker will show up in the list of plugins in Jed.
