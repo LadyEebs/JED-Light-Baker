@@ -81,6 +81,7 @@ Sector and layer masking is done naively with a bitmask array, any vertex whos s
 The results of the accumulation buffer are then read back from the GPU and sent back to JED. Sector ambient light is also updated.
 
 # Example Images
+<img width="3840" height="2036" alt="image" src="https://github.com/user-attachments/assets/38061f79-2989-4c48-8003-937c78cc98b2" />
 <img width="1916" height="1200" alt="image" src="https://github.com/user-attachments/assets/837f3498-3ae1-4fdc-96d3-bc08c5ffd743" />
 <img width="1909" height="1191" alt="image" src="https://github.com/user-attachments/assets/ecf6c038-6d15-45a9-8a13-40cf080137c6" />
 <img width="1919" height="1197" alt="image" src="https://github.com/user-attachments/assets/59b15e13-5285-4a48-8d8f-df678379de70" />
