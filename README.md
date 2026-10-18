@@ -82,9 +82,8 @@ The results of the accumulation buffer are then read back from the GPU and sent 
 
 # Example Images
 <img width="1916" height="1200" alt="image" src="https://github.com/user-attachments/assets/837f3498-3ae1-4fdc-96d3-bc08c5ffd743" />
-
-<img width="1916" height="1195" alt="image" src="https://github.com/user-attachments/assets/eac5e287-25ab-403a-93b2-0fc0e9b5ebc6" />
-<img width="1916" height="1198" alt="image" src="https://github.com/user-attachments/assets/3a31c740-f2a5-47de-8039-19c17f5ad47b" />
+<img width="1909" height="1191" alt="image" src="https://github.com/user-attachments/assets/ecf6c038-6d15-45a9-8a13-40cf080137c6" />
+<img width="1919" height="1197" alt="image" src="https://github.com/user-attachments/assets/59b15e13-5285-4a48-8d8f-df678379de70" />
 <img width="1923" height="1288" alt="image" src="https://github.com/user-attachments/assets/05fb9da6-3ed2-4050-8992-1faf8c547f3f" />
 <img width="1923" height="1288" alt="image" src="https://github.com/user-attachments/assets/1bbeb10d-d00b-48c8-875d-171cf8c6ce56" />
 <img width="1923" height="1288" alt="image" src="https://github.com/user-attachments/assets/1f9f5559-9475-4c13-9eaf-4564cefa1dbf" />
