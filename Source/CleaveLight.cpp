@@ -353,7 +353,7 @@ void CCleaveLight::CleaveVisibleSurfaces(int nSectorIndex, const float3& sourceP
 			const SPolygon negativePart = currentPolygon.ClipAgainstPlanes({oppositeCleave}, 1e-5f);
 
 			// reject cleaves that produce an edge, degenerate polygon, or tiny sliver
-			constexpr float kMinCleaveArea = 1e-4f;
+			constexpr float kMinCleaveArea = 2e-5f;
 			if (positivePart.vertices.size() < 3 || negativePart.vertices.size() < 3 || positivePart.Area() < kMinCleaveArea || negativePart.Area() < kMinCleaveArea)
 			{
 				continue;
