@@ -385,6 +385,7 @@ void CLightBakerDlg::OnShowWindow(BOOL bShow, UINT nStatus)
 	if (bShow)
 	{
 		LoadSettings(GetOrCreateSettingsCog());
+		UpdateData(FALSE);
 	}
 	else
 	{
