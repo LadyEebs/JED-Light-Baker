@@ -24,7 +24,7 @@ Range has no effect.
 
 ## Sky Light (0x4)
 To create a sky light, place a light and set flag "0x4" (sky flag). This light controls the sky color and intensity.
-Position and range have no effect.
+Position and range have no effect. When "Color from Material" is enabled, sky material albedos will be multiplied onto the sky light color.
 
 ## Anchor (0x8)
 To change the orbit position of the sun, place a light and set flag "0x8" (sun anchor). The sun light will then orbit this light instead of the world origin, useful for big off-center levels.
