@@ -14,19 +14,22 @@ enum ELightBakeFlags
 	ELightBake_ExtraLightEmissive = 0x100,
 	ELightBake_ToneMap = 0x200,
 	ELightBake_PhysicalFalloff = 0x400,
+	ELightBake_SkyColorFromMaterial = 0x800,
+	ELightBake_AllowLightCleave = 0x1000,
+	ELightBake_AllowSunCleave = 0x2000,
 
 	ELightBake_Direct = ELightBake_Lights | ELightBake_Sun | ELightBake_Sky | ELightBake_Emissive
 };
 
 // Gpu surface flags
-enum ESurfaceFlags
+enum EGpuSurfaceFlags
 {
-	ESurface_IsHorizonSky = 0x1,
-	ESurface_IsCeilingSky = 0x2,
-	ESurface_IsVisible = 0x4,
-	ESurface_IsTranslucent = 0x8,
+	EGpuSurface_IsHorizonSky = 0x1,
+	EGpuSurface_IsCeilingSky = 0x2,
+	EGpuSurface_IsVisible = 0x4,
+	EGpuSurface_IsTranslucent = 0x8,
 
-	ESurface_IsSky = ESurface_IsHorizonSky | ESurface_IsCeilingSky
+	EGpuSurface_IsSky = EGpuSurface_IsHorizonSky | EGpuSurface_IsCeilingSky
 };
 
 // Engine/editor sector flags
@@ -50,11 +53,34 @@ enum EFaceFlags
 	EFace_Translucent = 0x2,
 };
 
-// Engine/editor sky surface flags
-enum ESkyFlags
+// Engine/editor surface flags
+enum ESurfaceFlags
 {
-	ESky_Horizon = 0x200,
-	ESky_Ceiling = 0x400,
+	ESurface_CogLinked = 0x2,
+
+	ESurface_Horizon = 0x200,
+	ESurface_Ceiling = 0x400,
+
+	ESurface_IsSky = ESurface_Horizon | ESurface_Ceiling
+};
+
+// Engine/editor geometry modes
+enum EGeoMode
+{
+	EGeoMode_NotRendered = 0,
+	EGeoMode_Points = 1,
+	EGeoMode_Lines = 2,
+	EGeoMode_Solid = 3,
+	EGeoMode_Textured = 4
+};
+
+// Engine/editor light modes
+enum ELightMode
+{
+	ELightMode_FullyLit = 0,
+	ELightMode_Unlit = 1,
+	ELightMode_Diffuse = 2,
+	ELightMode_Gouraud = 3,
 };
 
 // Baker specific light flags
@@ -63,5 +89,14 @@ enum ELightFlags
 	ELight_Sun = 0x2,
 	ELight_Sky = 0x4,
 	ELight_Anchor = 0x8,
-	ELight_Ambient = 0x10,
+	ELight_Spotlight = 0x10, // TODO
+	ELight_Ambient = 0x20,
+	ELight_Cleave = 0x40,
+};
+
+// Material record types (for .mat reading)
+enum EMaterialRecordType
+{
+	EMaterialRecordType_Color = 0,
+	EMaterialRecordType_Texture = 0x8,
 };

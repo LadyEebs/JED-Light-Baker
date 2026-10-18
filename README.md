@@ -17,42 +17,62 @@ Once downloaded, head over to your editor installs plugins directory (ex: jed/pl
 If done successfully the Light Baker will show up in the list of plugins in Jed.
 
 # Usage
-## Sunlight
+## Sun Light (0x2)
 To create a sun, place a light and set flag "0x2" (sun flag). This light controls the sun direction, color and intensity.
 Move it around the world origin (or anchor, see below) to control the direction of the sun light.
 Range has no effect.
 
-## Skylight
+## Sky Light (0x4)
 To create a sky light, place a light and set flag "0x4" (sky flag). This light controls the sky color and intensity.
 Position and range have no effect.
 
-## Anchor
+## Anchor (0x8)
 To change the orbit position of the sun, place a light and set flag "0x8" (sun anchor). The sun light will then orbit this light instead of the world origin, useful for big off-center levels.
 All settings except position do nothing.
+
+## Spot Light (0x10)
+
+TODO: Not implemented yet.
+
+## Ambient Light (0x20)
+Ambient lights are multiplicative, meaning they darken or brighten the scene within their radius instead of adding light. They are useful for creating darkness for specific areas like pits or emphasizing points of interest.
+The color and intensity of the ambient light is multiplied onto the existing light in the scene after the other lights have been applied.
+To create an ambient light, place a light and set flag "0x20" (ambient flag). Position and range control the area of effect.
+
+## Shadow Cleaving (0x40)
+Set flag 0x40 (shadow cleaving flag) to enable "shadow casting" on a light.
+This is a special flag that marks lights that should be used to cleave shadows, allowing finer control of what needs shadows and preventing unnecessary calculations.
+Cleaving is only performed if the option is enabled in the baker. Use wisely, as this is destructive to the level geometry and potentially expensive to calculate.
 
 # Features
 - Directional sun light
 - Point lights, both in the original JED style and a new more physically motivated style
 - Sky lighting for natural outdoor ambient light
-- Emissive surfaces (uses material fill color, note: 16 bit mats don't store this properly, use 8 bit for emissives or "Extra Light as Emissive")
+- Multiplicative ambient lights for darkening areas
+- Soft shadows via ligher-style shadow cleaving
+- Emissive surfaces (uses material fill color)
 - Indirect lighting with bounced light from both solid and translucent surfaces as well as translucent color tinting
 - Gamma correct lighting (optional)
-- Tone mapped result, if using very strong lights and aiming to avoid clamping to 1.0
+- Tone mapped result, if using very strong lights and aiming to avoid clamping to 1.0 (or if you just want a punchier cinematic look)
 - Smooth normals for curved surfaces
 
 # Limitations
-Unfortunately since community material tools (like Mat16) don't write out RGB colors for materials, the baker is limited to 8 bit materials only. Everything else is treated as white.
+Materials currently rely on their solid fill color field to supply surface color for GI tracing.
+For 8 bit materials, this is supported in Mat Master. For 16 bit or others, only Mat 16 1.4.3 and later support this. Older 16 bit mats will not generate bounced light or emission until resaved.
 
 # How it Works
 A barebones version of the level is uploaded to the GPU via Buffers/StructuredBuffers. This minimal version contains basic geometry (surface normal, vertex positions, fill colors) and connectivity (adjoins).
 
-Before lighting a shader runs through sectors, looking for overlapping vertices within the sector and neighboring sectors. Vertices are compared by distance and by normal difference, any pair that passes this test have their respective surface normals added to each other. A vertex pair might be processed multiple times but that only affects the magnitude so it's fine, the normal must be normalized when accessed anyway (to avoid having to write another pass outright). This produces smooth normals on curved surfaces.
+Before lighting, one or two passes are run over the geometry:
+- If enabled, shadow cleaving is performed which slices up faces using clipping planes accumulated from the light through adjoins (or from sky surfaces in the case of the sun). This needs to run first since it modifies the geometry and the other passes rely on the modified geometry. This is the only pass done on the CPU because of the heavy geometry modifications and difficult to predict memory usage.
+- A vertex adjacency graph is computed from the level geometry, using a spatial hash and a sparse matrix so we can smooth normals on the GPU, and thus lighting transitions, across surfaces and sector adjoins. This is done after cleaving since it modifies the geometry and would break the adjacency graph.
 
 Then lighting is done in passes:
 - For the sun, dispatch a thread for each vertex and trace a ray towards the sun. If no hit is found, the vertex color is set to the sun color. This is the first stage so it ignores the "previous" result and simply replaces the color.
 - For direct lights, dispatch a group of threads per vertex, each thread processes a few lights depending on how many lights are in the scene, calculating lighting and accumulating the results locally and stored in groupshared memory, these are summed and the final result is written back to the vertex by the first thread.
 - For sky/emissives, we do the same thing but each thread processes a few rays oriented around the hemisphere rather than lights, accumulating the sky color or emissive surface color from the hit.
 - For indirect light we do the same as the sky except we ignore sky surfaces and modulate the surface color by the previous pass result. The shader does the same accumulation but also outputs the current result (not accumulated) for the next bounce. This propagates light across each bounce.
+- Finally for the ambient pass, we simply multiply the current result by the ambient light color and intensity.
 
 Tracing is straightforward: start at a sector, check the surfaces for intersection (starting with adjoins so that they take precedent in case of numerical precision issues). If there's a hit, recurse if the hit is an adjoin, or end the trace and return the hit surface index. Collisions are basic polygon/plane tests, like in JED. The resulting hit point is used to do shading, either by grabbing the sun or sky colors (if the hit was a sky marked surface), or surface colors (if it's a emissive or solid), depending on the pass.
 

@@ -2,19 +2,31 @@
 #include "framework.h"
 #include "Light Baker.h"
 #include "Jed.h"
+#include "Resource.h"
+#include "Enums.h"
+#include "HWTypes.h"
+#include "CleaveLight.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
 
+// GI defaults
 static constexpr int kDefIndirectBounces = 3;
 static constexpr int kMinIndirectBounces = 1;
 static constexpr int kMaxIndirectBounces = 5;
 
+// Normal smoothing defaults
 static constexpr int kDefNormalSmoothAngle = 35;
 static constexpr int kMinNormalSmoothAngle = 0;
 static constexpr int kMaxNormalSmoothAngle = 180;
 
+// Normal smoothing constants
+static constexpr float kSmoothDistanceSq = 1.0e-5f;
+static constexpr float kInvSmoothCellSize = 316.2277660168f;
+static constexpr uint32_t kInvalidVertex = UINT32_MAX;
+
+// Ray tracing defaults
 static constexpr const wchar_t* ksRaysPerVertex[] = { _T("256"), _T("512"), _T("1024")};
 static constexpr int kRaysPerVertex[] = { 256, 512, 1024 };
 static constexpr int kDefRaysPerVertexIdx = 2;
@@ -31,20 +43,82 @@ float3 SColormap::GetColor(uint32_t nIndex, int nLightLevel) const
 	return fillColor;
 }
 
-template <typename... Args>
-void PrintMessage(IJED* pJed, uint32_t nType, const char* sFmt, Args&&... args)
-{
-	char msg[256];
-	sprintf_s(msg, 256, sFmt, std::forward<Args>(args)...);
-	pJed->PanMessage(nType, msg);
-}
-
 // Test if a sector is in the sector bitmask
 static bool TestMaskBit(const uint32_t* paMasks, int nIndex)
 {
 	const uint32_t nBucketIndex = nIndex / 32u;
 	const uint32_t nBucketPlace = nIndex % 32u;
 	return (paMasks[nBucketIndex] & (1u << nBucketPlace));
+}
+
+static SNormalCell GetNormalCell(const SSpatialVertex& v)
+{
+	return
+	{
+		(int)std::floor(v.x * kInvSmoothCellSize),
+		(int)std::floor(v.y * kInvSmoothCellSize),
+		(int)std::floor(v.z * kInvSmoothCellSize)
+	};
+}
+
+static bool AreCoincident(const SSpatialVertex& a, const SSpatialVertex& b)
+{
+	const float dx = a.x - b.x;
+	const float dy = a.y - b.y;
+	const float dz = a.z - b.z;
+
+	return dx * dx + dy * dy + dz * dz < kSmoothDistanceSq;
+}
+
+static uint64_t MakeAdjoinKey(uint32_t nSector0, uint32_t nSector1)
+{
+	return (uint64_t(nSector0) << 32) | uint64_t(nSector1);
+}
+
+template<typename TCallback>
+void ForEachNormalNeighbor(uint32_t nVertexIndex0, const std::vector<SSpatialVertex>& vertices, const SNormalCellMap& cellHeads,
+						   const std::unordered_set<uint64_t>& adjoining, TCallback&& callback)
+{
+	const SSpatialVertex& v0 = vertices[nVertexIndex0];
+	const SNormalCell cell = GetNormalCell(v0);
+
+	for (int z = -1; z <= 1; ++z)
+	{
+		for (int y = -1; y <= 1; ++y)
+		{
+			for (int x = -1; x <= 1; ++x)
+			{
+				const SNormalCell neighborCell = { cell.x + x, cell.y + y, cell.z + z };
+				const auto it = cellHeads.find(neighborCell);
+				if (it == cellHeads.end())
+					continue;
+
+				for (uint32_t nVertexIndex1 = it->second; nVertexIndex1 != kInvalidVertex; nVertexIndex1 = vertices[nVertexIndex1].nNextInCell)
+				{
+					if (nVertexIndex1 == nVertexIndex0)
+						continue;
+
+					const SSpatialVertex& v1 = vertices[nVertexIndex1];
+					if (!AreCoincident(v0, v1))
+						continue;
+
+					// in-sector smoothing is bidirectional
+					if (v0.nSectorIndex == v1.nSectorIndex)
+					{
+						callback(nVertexIndex1);
+						continue;
+					}
+
+					// adjoin smoothing is directional, matching SmoothAdjoin()
+					auto it = adjoining.find(MakeAdjoinKey(v0.nSectorIndex, v1.nSectorIndex));
+					if (it	!= adjoining.end())
+					{
+						callback(nVertexIndex1);
+					}
+				}
+			}
+		}
+	}
 }
 
 CLightBakerApp theApp;
@@ -86,6 +160,7 @@ CLightBakerDlg::CLightBakerDlg(IJED* pJed, CWnd* pParent)
 	, m_pBakeDirectShader(nullptr)
 	, m_pBakeSkyEmissiveShader(nullptr)
 	, m_pBakeIndirectShader(nullptr)
+	, m_pBakeAmbientShader(nullptr)
 	, m_pGenNormalsShader(nullptr)
 	, m_pLevelInfoConstants(nullptr)
 	, m_bBakePointLights(TRUE)
@@ -94,9 +169,12 @@ CLightBakerDlg::CLightBakerDlg(IJED* pJed, CWnd* pParent)
 	, m_bBakeEmissiveLight(TRUE)
 	, m_bBakeIndirectLight(TRUE)
 	, m_bGammaCorrect(TRUE)
+	, m_bAllowSunLightCleave(FALSE)
+	, m_bAllowLightCleave(FALSE)
 	, m_bExtraLightEmissive(FALSE)
 	, m_bPhysicalFalloff(TRUE)
 	, m_bToneMap(FALSE)
+	, m_bSkyColorFromMaterials(FALSE)
 	, m_nSkyEmissiveRayCount(kRaysPerVertex[kDefRaysPerVertexIdx])
 	, m_nIndirectRayCount(kRaysPerVertex[kDefRaysPerVertexIdx])
 	, m_nIndirectBounces(kDefIndirectBounces)
@@ -165,49 +243,49 @@ bool CLightBakerDlg::CreateDeviceD3D()
 	HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags, featureLevelArray, 1, D3D11_SDK_VERSION, &m_pDeviceD3D, (D3D_FEATURE_LEVEL*)&feature_level, &m_pDeviceContextD3D);
 	if (FAILED(hr))
 	{
-		PrintMessage(m_pJed, msg_error, "Failed to create D3D11 device.");
+		Jed::PrintMessage(m_pJed, msg_error, "Failed to create D3D11 device.");
 		return false;
 	}
 
 	if (!CreateComputeShader(m_pDeviceD3D, &m_pBakeSunShader, IDR_BAKE_SUN_CSO))
 	{
-		PrintMessage(m_pJed, msg_error, "Failed to compile sun shader.");
+		Jed::PrintMessage(m_pJed, msg_error, "Failed to compile sun shader.");
 		return false;
 	}
 
 	if (!CreateComputeShader(m_pDeviceD3D, &m_pBakeDirectShader, IDR_BAKE_DIRECT_CSO))
 	{
-		PrintMessage(m_pJed, msg_error, "Failed to compile light shader.");
+		Jed::PrintMessage(m_pJed, msg_error, "Failed to compile light shader.");
 		return false;
 	}
 
 	if (!CreateComputeShader(m_pDeviceD3D, &m_pBakeAmbientShader, IDR_BAKE_AMBIENT_CSO))
 	{
-		PrintMessage(m_pJed, msg_error, "Failed to compile ambient shader.");
+		Jed::PrintMessage(m_pJed, msg_error, "Failed to compile ambient shader.");
 		return false;
 	}
 
 	if (!CreateComputeShader(m_pDeviceD3D, &m_pBakeSkyEmissiveShader, IDR_BAKE_SKY_EMISSIVE_CSO))
 	{
-		PrintMessage(m_pJed, msg_error, "Failed to compile sky/emissive shader.");
+		Jed::PrintMessage(m_pJed, msg_error, "Failed to compile sky/emissive shader.");
 		return false;
 	}
 
 	if (!CreateComputeShader(m_pDeviceD3D, &m_pBakeIndirectShader, IDR_BAKE_INDIRECT_CSO))
 	{
-		PrintMessage(m_pJed, msg_error, "Failed to compile indirect shader.");
+		Jed::PrintMessage(m_pJed, msg_error, "Failed to compile indirect shader.");
 		return false;
 	}
 
 	if (!CreateComputeShader(m_pDeviceD3D, &m_pGenNormalsShader, IDR_GEN_SMOOTH_NORMALS_CSO))
 	{
-		PrintMessage(m_pJed, msg_error, "Failed to compile vertex normals generation shader.");
+		Jed::PrintMessage(m_pJed, msg_error, "Failed to compile vertex normals generation shader.");
 		return false;
 	}
 
 	if(!CreateConstantBuffer(m_pDeviceD3D, &m_pLevelInfoConstants, sizeof(SLevelInfo)))
 	{
-		PrintMessage(m_pJed, msg_error, "Failed to created constant buffer.");
+		Jed::PrintMessage(m_pJed, msg_error, "Failed to created constant buffer.");
 		return false;
 	}
 
@@ -218,6 +296,8 @@ void CLightBakerDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialogEx::DoDataExchange(pDX);
 	DDX_Check(pDX, IDC_CHECK_POINT, m_bBakePointLights);
+	DDX_Check(pDX, IDC_CHECK_SUN_CLEAVE, m_bAllowSunLightCleave);
+	DDX_Check(pDX, IDC_CHECK_LIGHT_CLEAVE, m_bAllowLightCleave);
 	DDX_Check(pDX, IDC_CHECK_SUN, m_bBakeSunLight);
 	DDX_Check(pDX, IDC_CHECK_SKY, m_bBakeSkyLight);
 	DDX_Check(pDX, IDC_CHECK_EMISSIVE, m_bBakeEmissiveLight);
@@ -226,6 +306,7 @@ void CLightBakerDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Check(pDX, IDC_CHECK_EXTRA_LIGHT_EMISSIVE, m_bExtraLightEmissive);
 	DDX_Check(pDX, IDC_CHECK_PHYSICAL_FALLOFF, m_bPhysicalFalloff);
 	DDX_Check(pDX, IDC_CHECK_TONE_MAP, m_bToneMap);
+	DDX_Check(pDX, IDC_CHECK_SKY2, m_bSkyColorFromMaterials);
 
 	DDX_Text(pDX, IDC_BOUNCES_EDIT, m_nIndirectBounces);
 
@@ -282,11 +363,22 @@ BEGIN_MESSAGE_MAP(CLightBakerDlg, CDialogEx)
     ON_BN_CLICKED(IDC_SUNLIGHT_BUTTON, &CLightBakerDlg::OnBnClickedSunlightButton)
 	ON_BN_CLICKED(IDC_SKYLIGHT_BUTTON, &CLightBakerDlg::OnBnClickedSkylightButton)
 	ON_BN_CLICKED(IDC_ANCHORLIGHT_BUTTON, &CLightBakerDlg::OnBnClickedAnchorlightButton)
+	ON_BN_CLICKED(IDC_CLEAVE_ALL_BUTTON, &CLightBakerDlg::OnBnClickedCleaveAllButton)
+	ON_BN_CLICKED(IDC_CLEAR_CACHES, &CLightBakerDlg::OnBnClickedClearCachesButton)
 END_MESSAGE_MAP()
 
-void CLightBakerDlg::SelectOrCreateLight(int nLightFlags)
+void CLightBakerDlg::SelectOrCreateLight(int nLightFlags, float intensity, const float3& rgb, float rgbIntensity)
 {
 	int nLightIndex = -1;
+
+	if (!m_pJed)
+		return;
+
+	if (!m_pJedLevel)
+		m_pJedLevel = m_pJed->GetLevel();
+
+	if (!m_pJedLevel)
+		return;
 
 	// find the first existing light with the specified flags (if one exists)
 	int nNumLights = m_pJedLevel->NLights();
@@ -294,7 +386,8 @@ void CLightBakerDlg::SelectOrCreateLight(int nLightFlags)
 	{
 		tjedlightrec light;
 		memset(&light, 0, sizeof(tjedlightrec));
-		m_pJedLevel->GetLight(i, &light, lt_flags);
+		if (FAILED(m_pJedLevel->GetLight(i, &light, lt_flags)))
+			continue;
 		if (light.flags & nLightFlags)
 		{
 			nLightIndex = i;
@@ -322,19 +415,49 @@ void CLightBakerDlg::SelectOrCreateLight(int nLightFlags)
 	m_pJed->SetCurLT(nLightIndex);
 }
 
-void CLightBakerDlg::OnBnClickedSunlightButton()
+afx_msg void CLightBakerDlg::OnBnClickedSunlightButton()
 {
-	SelectOrCreateLight(ELight_Sun);
+	SelectOrCreateLight(ELight_Sun, 1.0f, {1.0f, 0.97f, 0.95f}, 1.0f);
 }
 
-void CLightBakerDlg::OnBnClickedSkylightButton()
+afx_msg void CLightBakerDlg::OnBnClickedSkylightButton()
 {
-	SelectOrCreateLight(ELight_Sky);
+	SelectOrCreateLight(ELight_Sky, 0.5f, {0.6f, 0.773f, 0.941f}, 0.5f);
 }
 
-void CLightBakerDlg::OnBnClickedAnchorlightButton()
+afx_msg void CLightBakerDlg::OnBnClickedAnchorlightButton()
 {
-	SelectOrCreateLight(ELight_Anchor);
+	SelectOrCreateLight(ELight_Anchor, 0, {0,0,0}, 0);
+}
+
+afx_msg void CLightBakerDlg::OnBnClickedCleaveAllButton()
+{
+	m_nBakeFlags = ELightBake_AllowSunCleave | ELightBake_AllowLightCleave | ELightBake_Lights | ELightBake_Sun;
+
+	if (!m_pJed)
+		return;
+
+	if (!m_pJedLevel)
+		m_pJedLevel = m_pJed->GetLevel();
+
+	if (!m_pJedLevel)
+		return;
+	
+	if (FAILED(m_pJed->StartUndo(const_cast<char*>("Light Baker Cleave All"))))
+		return;
+
+	const int nNumSectors = m_pJedLevel->NSectors();
+	for (int nSectorIndex = 0; nSectorIndex < nNumSectors; ++nSectorIndex)
+		m_pJed->SaveUndoForSector(nSectorIndex, uc_changed, sc_geometry);
+
+	CleavePrepass(false);
+}
+
+afx_msg void CLightBakerDlg::OnBnClickedClearCachesButton()
+{
+	m_materialColorCache.clear();
+	m_colormapCache.clear();
+	Jed::PrintMessage(m_pJed, msg_info, "Cleared material and colormap caches.");
 }
 
 afx_msg void CLightBakerDlg::OnBnClickedBakeAll()
@@ -377,6 +500,8 @@ bool CLightBakerDlg::BakeLighting(uint32_t nInitBakeFlags)
 {
 	m_nBakeFlags = nInitBakeFlags;
 	m_nBakeFlags |= m_bBakePointLights ? ELightBake_Lights : 0;
+	m_nBakeFlags |= m_bAllowSunLightCleave ? ELightBake_AllowSunCleave : 0;
+	m_nBakeFlags |= m_bAllowLightCleave ? ELightBake_AllowLightCleave : 0;
 	m_nBakeFlags |= m_bBakeSunLight ? ELightBake_Sun : 0;
 	m_nBakeFlags |= m_bBakeSkyLight ? ELightBake_Sky : 0;
 	m_nBakeFlags |= m_bBakeEmissiveLight ? ELightBake_Emissive : 0;
@@ -385,6 +510,7 @@ bool CLightBakerDlg::BakeLighting(uint32_t nInitBakeFlags)
 	m_nBakeFlags |= m_bExtraLightEmissive ? ELightBake_ExtraLightEmissive : 0;
 	m_nBakeFlags |= m_bPhysicalFalloff ? ELightBake_PhysicalFalloff : 0;
 	m_nBakeFlags |= m_bToneMap ? ELightBake_ToneMap : 0;
+	m_nBakeFlags |= m_bSkyColorFromMaterials ? ELightBake_SkyColorFromMaterial : 0;
 	
 	m_pJedLevel = m_pJed->GetLevel();
 	if (!m_pJedLevel)
@@ -398,27 +524,42 @@ bool CLightBakerDlg::BakeLighting(uint32_t nInitBakeFlags)
 	}
 	m_pLastJedLevel = m_pJedLevel;
 
+	if (FAILED(m_pJed->StartUndo(const_cast<char*>("Light Baker"))))
+		return false;
+
+	// Save undo
+	const int nNumSectors = m_pJedLevel->NSectors();
+	for (int nSectorIndex = 0; nSectorIndex < nNumSectors; ++nSectorIndex)
+	{
+		m_pJed->SaveUndoForSector(nSectorIndex, uc_changed, sc_geometry);
+	}
+
+	// before doing anything on GPU, run the cleave pass (if allowed)
+	// this needs to be done before we grab the sector/surface/etc counts or we'll miss stuff
+	if (m_nBakeFlags & (ELightBake_AllowSunCleave | ELightBake_AllowLightCleave))
+	{
+		if(!CleavePrepass(true))
+			return false;
+	}
+
 	m_nNumLayers = m_pJedLevel->NLayers();
 
 	m_nNumSectors = m_pJedLevel->NSectors();
 	m_nNumQueuedSectors = (m_nBakeFlags & ELightBake_Selected) ? m_pJed->GetNMultiselected(MM_SC) : m_nNumSectors;
 	if (!m_nNumQueuedSectors)
 	{
-		PrintMessage(m_pJed, msg_info, "No sectors selected for light baking.");
+		Jed::PrintMessage(m_pJed, msg_info, "No sectors selected for light baking.");
 		return false;
 	}
 
 	m_nNumLights = m_pJedLevel->NLights();
 	if (!m_nNumLights)
 	{
-		PrintMessage(m_pJed, msg_info, "No lights available for baking.");
+		Jed::PrintMessage(m_pJed, msg_info, "No lights available for baking.");
 		return false;
 	}
 
-	PrintMessage(m_pJed, msg_info, "%u Sectors in Level queued for baking.", m_nNumQueuedSectors);
-
-	if (FAILED(m_pJed->StartUndo(const_cast<char*>("Light Baker"))))
-		return false;
+	Jed::PrintMessage(m_pJed, msg_info, "%u Sectors in Level queued for baking.", m_nNumQueuedSectors);
 
 	const auto startTime = std::chrono::high_resolution_clock::now();
 
@@ -434,9 +575,8 @@ bool CLightBakerDlg::BakeLighting(uint32_t nInitBakeFlags)
 			const int nNumVertices = m_pJedLevel->SurfaceNVertices(nSectorIndex, nSurfaceIndex);
 			m_nTotalVertices += nNumVertices;
 		}
-		m_pJed->SaveUndoForSector(nSectorIndex, 0, sc_geometry);
 	}
-	PrintMessage(m_pJed, msg_info, "%u Vertices in Level queued for baking.", m_nTotalVertices);
+	Jed::PrintMessage(m_pJed, msg_info, "%u Vertices in Level queued for baking.", m_nTotalVertices);
 
 	// preload the master colormap up front
 	PreloadMasterCMP();
@@ -482,7 +622,7 @@ bool CLightBakerDlg::BakeLighting(uint32_t nInitBakeFlags)
 	const auto endTime = std::chrono::high_resolution_clock::now();
 	const std::chrono::duration<float> deltaTime = endTime - startTime;
 
-	PrintMessage(m_pJed, msg_info, "Finished light bake in %g seconds.", deltaTime.count());
+	Jed::PrintMessage(m_pJed, msg_info, "Finished light bake in %g seconds.", deltaTime.count());
 
 	return true;
 }
@@ -512,7 +652,6 @@ bool CLightBakerDlg::LoadEmbeddedShader(UINT resourceID, const void** data, DWOR
 
 void CLightBakerDlg::AllocateBuffers()
 {
-	// todo: move the creation of the buffer data out of the constructor and check for failures
 	m_selectionBitmaskBuffer.Create(m_pDeviceD3D, m_pDeviceContextD3D, (m_nNumSectors + 31) / 32, sizeof(uint32_t), DXGI_FORMAT_R32_UINT, 0, 1, (D3D11_RESOURCE_MISC_FLAG)0);
 	m_layerBitmaskBuffer    .Create(m_pDeviceD3D, m_pDeviceContextD3D, (m_nNumLayers + 31) / 32, sizeof(uint32_t), DXGI_FORMAT_R32_UINT, 0, 1, (D3D11_RESOURCE_MISC_FLAG)0);
 	m_sectorBuffer          .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nNumSectors,             sizeof(SSector), DXGI_FORMAT_UNKNOWN, 0, 1, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
@@ -542,6 +681,8 @@ void CLightBakerDlg::FreeBuffers()
 	m_colorLastResultBuffer.Release();
 	m_colorCurrResultBuffer.Release();
 	m_accumulationBuffer.Release();
+	m_normalNeighborOffsetsBuffer.Release();
+	m_normalNeighborIndicesBuffer.Release();
 }
 
 void CLightBakerDlg::BuildSelectionBitmask()
@@ -549,7 +690,7 @@ void CLightBakerDlg::BuildSelectionBitmask()
 	CGpuBufferMapping<uint32_t> selectionMask(&m_selectionBitmaskBuffer, D3D11_MAP_WRITE);
 	if (!selectionMask)
 	{
-		PrintMessage(m_pJed, msg_error, "Failed to map selection bitmask buffer for upload.");
+		Jed::PrintMessage(m_pJed, msg_error, "Failed to map selection bitmask buffer for upload.");
 		return;
 	}
 
@@ -561,6 +702,10 @@ void CLightBakerDlg::BuildSelectionBitmask()
 		const uint32_t nBucketPlace = nSectorIndex % 32;
 		selectionMask[nBucketIndex] |= 1u << nBucketPlace;
 	}
+
+	m_selectedSectorBitmask.clear();
+	m_selectedSectorBitmask.resize((m_nNumSectors + 31) / 32);
+	std::copy(selectionMask.RawData(), selectionMask.RawData() + m_selectedSectorBitmask.size(), m_selectedSectorBitmask.begin());
 }
 
 void CLightBakerDlg::BuildLayerBitmask()
@@ -607,7 +752,7 @@ void CLightBakerDlg::BuildLights()
 		pLight->color = { (float)(light.r * light.rgbintensity), (float)(light.g * light.rgbintensity), (float)(light.b * light.rgbintensity), (float)light.intensity };
 		pLight->position = { (float)light.x, (float)light.y, (float)light.z, 1.0f };
 
-		if (light.flags & ELight_Sun) // todo: more than 1?
+		if (light.flags & ELight_Sun) // TODO: more than 1?
 			m_nSunLightIndex = nLightIndex;
 		else if (light.flags & ELight_Sky)
 			m_nSkyLightIndex = nLightIndex;
@@ -618,133 +763,280 @@ void CLightBakerDlg::BuildLights()
 
 void CLightBakerDlg::BuildGeometry()
 {
-	CGpuBufferMapping<SSector> sectors(&m_sectorBuffer, D3D11_MAP_WRITE);
-	CGpuBufferMapping<SSurface> surfaces(&m_surfaceBuffer, D3D11_MAP_WRITE);
-	CGpuBufferMapping<SVertex> vertices(&m_vertexBuffer, D3D11_MAP_WRITE);
-	CGpuBufferMapping<int4> normals(&m_normalBuffer, D3D11_MAP_WRITE);
-
-	if (!sectors || !surfaces || !vertices || !normals)
+	std::vector<SSpatialVertex> spatialVertices;
+	std::vector<uint64_t> adjoinEdges;
+	if (m_nNormalSmoothingAngle > 0)
 	{
-		PrintMessage(m_pJed, msg_error, "Failed to map geometry buffers for upload.");
+		spatialVertices.reserve(m_nTotalVertices);
+		adjoinEdges.reserve(m_nTotalSurfaces);
+	}
+
+	{
+		CGpuBufferMapping<SSector> sectors(&m_sectorBuffer, D3D11_MAP_WRITE);
+		CGpuBufferMapping<SSurface> surfaces(&m_surfaceBuffer, D3D11_MAP_WRITE);
+		CGpuBufferMapping<SVertex> vertices(&m_vertexBuffer, D3D11_MAP_WRITE);
+		CGpuBufferMapping<int4> normals(&m_normalBuffer, D3D11_MAP_WRITE);
+
+		if (!sectors || !surfaces || !vertices || !normals)
+		{
+			Jed::PrintMessage(m_pJed, msg_error, "Failed to map geometry buffers for upload.");
+			return;
+		}
+
+		uint32_t nSurfaceOffset = 0;
+		uint32_t nVertexOffset = 0;
+		for (int nSectorIndex = 0; nSectorIndex < m_nNumSectors; ++nSectorIndex)
+		{
+			const int nNumSurfaces = m_pJedLevel->SectorNSurfaces(nSectorIndex);
+
+			tjedsectorrec sector;
+			memset(&sector, 0, sizeof(tjedsectorrec));
+			m_pJedLevel->GetSector(nSectorIndex, &sector, s_all);
+			SColormap* pColormap = LoadColormap(sector.colormap);
+		
+			tjedbox box;
+			m_pJed->FindBBox(nSectorIndex, &box);
+
+			SSector* pSector = &sectors[nSectorIndex];
+			pSector->nFirstSurface = nSurfaceOffset;
+			pSector->nNumSurfaces = nNumSurfaces;
+			pSector->nLayerIndex = sector.layer;
+			pSector->center.x = float(box.x1 + box.x2) * 0.5f;
+			pSector->center.y = float(box.y1 + box.y2) * 0.5f;
+			pSector->center.z = float(box.z1 + box.z2) * 0.5f;
+
+			uint32_t nSurfaceBase = nSurfaceOffset;
+			uint32_t nAdjoinCursor = nSurfaceBase;              // grows forward
+			uint32_t nSolidCursor = nSurfaceBase + nNumSurfaces - 1; // grows backward
+			for (int nSurfaceIndex = 0; nSurfaceIndex < nNumSurfaces; ++nSurfaceIndex)
+			{
+				tjedsurfacerec surface;
+				memset(&surface, 0, sizeof(tjedsurfacerec));
+				if (FAILED(m_pJedLevel->GetSurface(nSectorIndex, nSurfaceIndex, &surface, sf_all)))
+					continue;
+
+				std::optional<float3> normalOpt = Jed::QuerySurfaceNormal(m_pJedLevel, nSectorIndex, nSurfaceIndex);
+				if (!normalOpt.has_value())
+					continue;
+				float3 normal = normalOpt.value();
+
+				const int nAdjoinSector = (surface.adjoinflags & EAdjoin_BlocksLight) ? -1 : surface.adjoinsc;
+				
+				if (m_nNormalSmoothingAngle > 0)
+				{
+					if (nAdjoinSector >= 0 && nAdjoinSector < m_nNumSectors && nAdjoinSector != nSectorIndex)
+					{
+						adjoinEdges.push_back(MakeAdjoinKey((uint32_t)nSectorIndex, (uint32_t)nAdjoinSector));
+					}
+				}
+
+				const bool bHasAdjoin = (nAdjoinSector >= 0);
+				uint32_t nDstIndex = bHasAdjoin ? nAdjoinCursor++ : nSolidCursor--;
+			
+				const int nNumVertices = m_pJedLevel->SurfaceNVertices(nSectorIndex, nSurfaceIndex);
+
+				SSurface* pSurface = &surfaces[nDstIndex];
+				pSurface->nFirstVertex = nVertexOffset;
+				pSurface->nNumVertices = nNumVertices;
+
+				float3 albedo = { 0.5f,0.5f,0.5f };
+				float3 emissive = { 0,0,0 };
+				if (pColormap)
+				{
+					int emissiveLightLevel = 0;
+
+					// use the light level so we can gracefully go back to 0 and still use regular emissives
+					if (m_nBakeFlags & ELightBake_ExtraLightEmissive)
+						emissiveLightLevel = int(std::min(std::max((float)surface.extralight, 0.0f), 1.0f) * 63.0f);
+
+					uint32_t nFillColor = LoadMaterialFillColor(surface.material, pColormap);
+					albedo = pColormap->GetColor(nFillColor, -1);
+					emissive = pColormap->GetColor(nFillColor, emissiveLightLevel);
+					if (m_nBakeFlags & ELightBake_GammaCorrect)
+					{
+						albedo = ToLinear(albedo);
+						emissive = ToLinear(emissive);
+					}
+
+					// allow the extra light to increase the intensity
+					if (m_nBakeFlags & ELightBake_ExtraLightEmissive)
+					{
+						emissive.x = std::max(emissive.x, (float)surface.extralight * emissive.x);
+						emissive.y = std::max(emissive.y, (float)surface.extralight * emissive.y);
+						emissive.z = std::max(emissive.z, (float)surface.extralight * emissive.z);
+					}
+				}
+				pSurface->albedo.x = albedo.x;
+				pSurface->albedo.y = albedo.y;
+				pSurface->albedo.z = albedo.z;
+				pSurface->albedo.w = (albedo.x + albedo.y + albedo.z) / 3.0f;
+
+				pSurface->emissive.x = emissive.x;
+				pSurface->emissive.y = emissive.y;
+				pSurface->emissive.z = emissive.z;
+				pSurface->emissive.w = (emissive.x + emissive.y + emissive.z) / 3.0f;
+
+				pSurface->normal.x = normal.x;
+				pSurface->normal.y = normal.y;
+				pSurface->normal.z = normal.z;
+
+				// if a surface is set to block light, then ignore the adjoin value
+				pSurface->nAdjoinSector = nAdjoinSector;
+				pSurface->nFlags = Jed::QuerySurfaceVisible(m_pJedLevel, nSectorIndex, nSurfaceIndex) ? EGpuSurface_IsVisible : 0;
+				if (surface.surfflags & ESurface_Horizon)
+					pSurface->nFlags |= EGpuSurface_IsHorizonSky;
+				if (surface.surfflags & ESurface_Ceiling)
+					pSurface->nFlags |= EGpuSurface_IsCeilingSky;
+				if (surface.faceflags & EFace_Translucent)
+					pSurface->nFlags |= EGpuSurface_IsTranslucent;
+
+				for (int nVertexIndex = 0; nVertexIndex < nNumVertices; ++nVertexIndex)
+				{
+					std::optional<float3> vertexOpt = Jed::QuerySurfaceVertex(m_pJedLevel, nSectorIndex, nSurfaceIndex, nVertexIndex);
+					if (!vertexOpt.has_value())
+						continue;
+					float3 vertex = vertexOpt.value();
+
+					if (m_nNormalSmoothingAngle > 0)
+						spatialVertices.push_back({vertex.x, vertex.y, vertex.z, (uint32_t)nSectorIndex, kInvalidVertex});
+
+					SVertex* pVertex = &vertices[nVertexOffset];
+					pVertex->position.x = vertex.x;
+					pVertex->position.y = vertex.y;
+					pVertex->position.z = vertex.z;
+					pVertex->nSectorIndex = nSectorIndex;
+					pVertex->nSurfaceIndex = nDstIndex;
+					pVertex->nLocalSurfaceIndex = nSurfaceIndex;
+					pVertex->nLocalVertexIndex = nVertexIndex;
+
+					int4* pNormal = &normals[nVertexOffset++];
+					pNormal->x = (int)(normal.x * 1024.0);
+					pNormal->y = (int)(normal.y * 1024.0);
+					pNormal->z = (int)(normal.z * 1024.0);
+					pNormal->w = 1;
+				}
+				nSurfaceOffset = nAdjoinCursor + (nNumSurfaces - (nSolidCursor - nSurfaceBase + 1));
+				//++nSurfaceOffset;
+			}
+		}
+	}
+
+	if (m_nNormalSmoothingAngle <= 0)
+		return;
+
+	if (spatialVertices.size() != (size_t)m_nTotalVertices)
+	{
+		Jed::PrintMessage(m_pJed, msg_error, "Generated vertex count does not match the geometry buffers.");
 		return;
 	}
 
-	uint32_t nSurfaceOffset = 0;
-	uint32_t nVertexOffset = 0;
-	for (int nSectorIndex = 0; nSectorIndex < m_nNumSectors; ++nSectorIndex)
+	std::vector<uint32_t> neighborOffsets, neighborIndices;
+
+	if (!BuildNormalAdjacency(spatialVertices, adjoinEdges, neighborOffsets, neighborIndices))
 	{
-		const int nNumSurfaces = m_pJedLevel->SectorNSurfaces(nSectorIndex);
+		Jed::PrintMessage(m_pJed, msg_error, "Failed to build normal adjacency lists.");
+		return;
+	}
 
-		tjedsectorrec sector;
-		memset(&sector, 0, sizeof(tjedsectorrec));
-		m_pJedLevel->GetSector(nSectorIndex, &sector, s_all);
-		SColormap* pColormap = LoadColormap(sector.colormap);
-		
-		tjedbox box;
-		m_pJed->FindBBox(nSectorIndex, &box);
+	if (!UploadStructuredBuffer(m_normalNeighborOffsetsBuffer, neighborOffsets))
+	{
+		Jed::PrintMessage(m_pJed, msg_error, "Failed to upload normal neighbor offsets.");
+		return;
+	}
 
-		SSector* pSector = &sectors[nSectorIndex];
-		pSector->nFirstSurface = nSurfaceOffset;
-		pSector->nNumSurfaces = nNumSurfaces;
-		pSector->nLayerIndex = sector.layer;
-		pSector->center.x = float(box.x1 + box.x2) * 0.5f;
-		pSector->center.y = float(box.y1 + box.y2) * 0.5f;
-		pSector->center.z = float(box.z1 + box.z2) * 0.5f;
+	if (!UploadStructuredBuffer(m_normalNeighborIndicesBuffer, neighborIndices))
+	{
+		m_normalNeighborOffsetsBuffer.Release();
+		Jed::PrintMessage(m_pJed, msg_error, "Failed to upload normal neighbor indices.");
+		return;
+	}
+}
 
-		uint32_t nSurfaceBase = nSurfaceOffset;
-		uint32_t nAdjoinCursor = nSurfaceBase;              // grows forward
-		uint32_t nSolidCursor = nSurfaceBase + nNumSurfaces - 1; // grows backward
-		for (int nSurfaceIndex = 0; nSurfaceIndex < nNumSurfaces; ++nSurfaceIndex)
+bool CLightBakerDlg::BuildNormalAdjacency(std::vector<SSpatialVertex>& vertices, const std::vector<uint64_t>& adjoinEdges, std::vector<uint32_t>& offsets, std::vector<uint32_t>& indices)
+{
+	offsets.clear();
+	indices.clear();
+
+	if (vertices.size() >= (size_t)INT_MAX)
+		return false;
+
+	const uint32_t nVertexCount = (uint32_t)vertices.size();
+	if (nVertexCount == 0)
+	{
+		offsets.push_back(0);
+		return true;
+	}
+
+	// collapse multiple adjoin surfaces connecting the same directed sector pair into a single sector-level relationship
+	std::unordered_set<uint64_t> adjoining;
+	adjoining.reserve(adjoinEdges.size());
+	for (uint64_t nEdge : adjoinEdges)
+		adjoining.insert(nEdge);
+
+	// each occupied cell stores the headindex of a linked list of vertex records
+	SNormalCellMap cellHeads;
+	cellHeads.reserve(vertices.size());
+	for (uint32_t i = 0; i < nVertexCount; ++i)
+	{
+		SSpatialVertex& vertex = vertices[i];
+		const SNormalCell cell = GetNormalCell(vertex);
+
+		const auto result = cellHeads.emplace(cell, i);
+		if (result.second)
 		{
-			tjedsurfacerec surface;
-			memset(&surface, 0, sizeof(tjedsurfacerec));
-			m_pJedLevel->GetSurface(nSectorIndex, nSurfaceIndex, &surface, sf_all);
-
-			const int nAdjoinSector = (surface.adjoinflags & EAdjoin_BlocksLight) ? -1 : surface.adjoinsc;
-			const bool bHasAdjoin = (nAdjoinSector >= 0);
-			uint32_t nDstIndex = bHasAdjoin ? nAdjoinCursor++ : nSolidCursor--;
-			
-			const int nNumVertices = m_pJedLevel->SurfaceNVertices(nSectorIndex, nSurfaceIndex);
-
-			SSurface* pSurface = &surfaces[nDstIndex];
-			pSurface->nFirstVertex = nVertexOffset;
-			pSurface->nNumVertices = nNumVertices;
-
-			float3 albedo = { 0.5f,0.5f,0.5f };
-			float3 emissive = { 0,0,0 };
-			if (pColormap)
-			{
-				int emissiveLightLevel = 0;
-
-				// use the light level so we can gracefully go back to 0 and still use regular emissives
-				if (m_nBakeFlags & ELightBake_ExtraLightEmissive)
-					emissiveLightLevel = int(std::min(std::max((float)surface.extralight, 0.0f), 1.0f) * 63.0f);
-
-				uint32_t nFillColor = LoadMaterialFillColor(surface.material, pColormap);
-				albedo = pColormap->GetColor(nFillColor, -1);
-				emissive = pColormap->GetColor(nFillColor, emissiveLightLevel);
-				if (m_nBakeFlags & ELightBake_GammaCorrect)
-				{
-					albedo = ToLinear(albedo);
-					emissive = ToLinear(emissive);
-				}
-
-				// allow the extra light to increase the intensity
-				if (m_nBakeFlags & ELightBake_ExtraLightEmissive)
-				{
-					emissive.x = std::max(emissive.x, (float)surface.extralight * emissive.x);
-					emissive.y = std::max(emissive.y, (float)surface.extralight * emissive.y);
-					emissive.z = std::max(emissive.z, (float)surface.extralight * emissive.z);
-				}
-			}
-			pSurface->albedo.x = albedo.x;
-			pSurface->albedo.y = albedo.y;
-			pSurface->albedo.z = albedo.z;
-			pSurface->albedo.w = (albedo.x + albedo.y + albedo.z) / 3.0f;
-
-			pSurface->emissive.x = emissive.x;
-			pSurface->emissive.y = emissive.y;
-			pSurface->emissive.z = emissive.z;
-			pSurface->emissive.w = (emissive.x + emissive.y + emissive.z) / 3.0f;
-
-			float3 normal = Jed::QuerySurfaceNormal(m_pJedLevel, nSectorIndex, nSurfaceIndex);
-			pSurface->normal.x = normal.x;
-			pSurface->normal.y = normal.y;
-			pSurface->normal.z = normal.z;
-
-			// if a surface is set to block light, then ignore the adjoin value
-			pSurface->nAdjoinSector = nAdjoinSector;
-			pSurface->nFlags = Jed::QuerySurfaceVisible(m_pJedLevel, nSectorIndex, nSurfaceIndex) ? ESurface_IsVisible : 0;
-			if (surface.surfflags & ESky_Horizon)
-				pSurface->nFlags |= ESurface_IsHorizonSky;
-			if (surface.surfflags & ESky_Ceiling)
-				pSurface->nFlags |= ESurface_IsCeilingSky;
-			if (surface.faceflags & EFace_Translucent)
-				pSurface->nFlags |= ESurface_IsTranslucent;
-
-			for (int nVertexIndex = 0; nVertexIndex < nNumVertices; ++nVertexIndex)
-			{
-				float3 vertex = Jed::QuerySurfaceVertex(m_pJedLevel, nSectorIndex, nSurfaceIndex, nVertexIndex);
-
-				SVertex* pVertex = &vertices[nVertexOffset];
-				pVertex->position.x = vertex.x;
-				pVertex->position.y = vertex.y;
-				pVertex->position.z = vertex.z;
-				pVertex->nSectorIndex = nSectorIndex;
-				pVertex->nSurfaceIndex = nDstIndex;
-				pVertex->nLocalSurfaceIndex = nSurfaceIndex;
-				pVertex->nLocalVertexIndex = nVertexIndex;
-
-				int4* pNormal = &normals[nVertexOffset++];
-				pNormal->x = (int)(normal.x * 1024.0);
-				pNormal->y = (int)(normal.y * 1024.0);
-				pNormal->z = (int)(normal.z * 1024.0);
-				pNormal->w = 1;
-			}
-			nSurfaceOffset = nAdjoinCursor + (nNumSurfaces - (nSolidCursor - nSurfaceBase + 1));
-			//++nSurfaceOffset;
+			vertex.nNextInCell = kInvalidVertex;
+		}
+		else
+		{
+			vertex.nNextInCell = result.first->second;
+			result.first->second = i;
 		}
 	}
+
+	// count every vertex's contribution list
+	std::vector<uint32_t> counts(nVertexCount, 0);
+	for (uint32_t i = 0; i < nVertexCount; ++i)
+	{
+		bool overflow = false;
+
+		ForEachNormalNeighbor(i, vertices, cellHeads, adjoining, [&] (uint32_t)
+		{
+			if (counts[i] == UINT32_MAX)
+				overflow = true;
+			else
+				++counts[i];
+		});
+
+		if (overflow)
+			return false;
+	}
+
+	offsets.resize((size_t)nVertexCount + 1);
+
+	uint64_t total = 0;
+	offsets[0] = 0;
+	for (uint32_t i = 0; i < nVertexCount; ++i)
+	{
+		total += counts[i];
+		if (total > (uint64_t)INT_MAX)
+			return false;
+
+		offsets[i + 1] = (uint32_t)total;
+	}
+
+	indices.resize((size_t)total);
+
+	// fill each vertex's contribution list
+	std::vector<uint32_t> cursor(offsets.begin(), offsets.begin() + nVertexCount);
+	for (uint32_t i = 0; i < nVertexCount; ++i)
+	{
+		ForEachNormalNeighbor(i, vertices, cellHeads, adjoining, [&](uint32_t neighbor)
+		{
+			indices[cursor[i]++] = neighbor;
+		});
+	}
+
+	return true;
 }
 
 int CLightBakerDlg::CreateComputeShader(ID3D11Device* pDevice, ID3D11ComputeShader** pShader, UINT resourceID) const
@@ -776,7 +1068,6 @@ int CLightBakerDlg::CreateConstantBuffer(ID3D11Device* pDevice, ID3D11Buffer** p
 
 void CLightBakerDlg::UpdateLevelInfo()
 {
-	// run the bake
 	SLevelInfo levelInfo;
 	levelInfo.nTotalSectors     = m_nNumSectors;
 	levelInfo.nTotalSurfaces    = m_nTotalSurfaces;
@@ -839,10 +1130,10 @@ void CLightBakerDlg::BakeDirectLighting()
 	// - Sky and emissive (atomic add)
 	if (m_nBakeFlags & ELightBake_Sun)
 		DispatchBakePass((m_nTotalVertices + 255) / 256, 1, m_pBakeSunShader, &m_colorLastResultBuffer, &m_colorCurrResultBuffer);
-	
+
 	if (m_nBakeFlags & ELightBake_Lights)
 		DispatchBakePass(m_nTotalVertices, 1, m_pBakeDirectShader, &m_colorLastResultBuffer, &m_colorCurrResultBuffer);
-	
+
 	if ((m_nBakeFlags & ELightBake_Sky) || (m_nBakeFlags & ELightBake_Emissive))
 		DispatchBakePass(m_nTotalVertices, 1, m_pBakeSkyEmissiveShader, &m_colorLastResultBuffer, &m_colorCurrResultBuffer);
 }
@@ -868,6 +1159,9 @@ void CLightBakerDlg::BakeIndirectLighting()
 
 void CLightBakerDlg::ComputeSmoothNormals()
 {
+	if (m_nTotalVertices <= 0)
+		return;
+
 	ID3D11ShaderResourceView* apShaderResources[] =
 	{
 		m_selectionBitmaskBuffer.GetSRV(),
@@ -875,28 +1169,29 @@ void CLightBakerDlg::ComputeSmoothNormals()
 		m_sectorBuffer.GetSRV(),
 		m_surfaceBuffer.GetSRV(),
 		m_vertexBuffer.GetSRV(),
+		m_normalNeighborOffsetsBuffer.GetSRV(),
+		m_normalNeighborIndicesBuffer.GetSRV()
 	};
 
-	ID3D11UnorderedAccessView* apUnorderedResources[] =
-	{
-		m_normalBuffer.GetUAV()
-	};
+	ID3D11UnorderedAccessView* apUnorderedResources[] = { m_normalBuffer.GetUAV() };
 
 	ID3D11Buffer* apConstantBuffers[] = { m_pLevelInfoConstants };
 
 	m_pDeviceContextD3D->CSSetShader(m_pGenNormalsShader, nullptr, 0);
 	m_pDeviceContextD3D->CSSetConstantBuffers(0, 1, apConstantBuffers);
-	m_pDeviceContextD3D->CSSetShaderResources(0, 5, apShaderResources);
-	m_pDeviceContextD3D->CSSetUnorderedAccessViews(0, 1, apUnorderedResources, 0);
-	m_pDeviceContextD3D->Dispatch((m_nNumSectors + 255)/256, 1, 1);//(m_nTotalVertices + 15) / 16, (m_nTotalVertices + 15) / 16, 1);
+	m_pDeviceContextD3D->CSSetShaderResources(0, 7, apShaderResources);
+	m_pDeviceContextD3D->CSSetUnorderedAccessViews(0, 1, apUnorderedResources, nullptr);
 
-	ID3D11Buffer* nullBuf[] = { nullptr };
-	ID3D11ShaderResourceView* nullSRV[] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
-	ID3D11UnorderedAccessView* nullUAV[] = { nullptr, nullptr };
+	m_pDeviceContextD3D->Dispatch((m_nTotalVertices + 255) / 256, 1, 1);
 
-	m_pDeviceContextD3D->CSSetConstantBuffers(0, 1, nullBuf);
-	m_pDeviceContextD3D->CSSetShaderResources(0, 5, nullSRV);
-	m_pDeviceContextD3D->CSSetUnorderedAccessViews(0, 1, nullUAV, 0);
+	ID3D11ShaderResourceView* apNullSRVs[7] = {};
+	ID3D11UnorderedAccessView* apNullUAVs[1] = {};
+	ID3D11Buffer* apNullCBs[1] = {};
+	m_pDeviceContextD3D->CSSetShaderResources(0, 7, apNullSRVs);
+	m_pDeviceContextD3D->CSSetUnorderedAccessViews(0, 1, apNullUAVs, nullptr);
+	m_pDeviceContextD3D->CSSetConstantBuffers(0, 1, apNullCBs);
+
+	m_pDeviceContextD3D->CSSetShader(nullptr, nullptr, 0);
 }
 
 void CLightBakerDlg::DownloadAndApplyToLevel()
@@ -910,7 +1205,7 @@ void CLightBakerDlg::DownloadAndApplyToLevel()
 
 	if (!vertexData || !vertices || !sectors || !surfaces || !layerMask || !sectorMask)
 	{
-		PrintMessage(m_pJed, msg_error, "Failed to map geometry buffers for download.");
+		Jed::PrintMessage(m_pJed, msg_error, "Failed to map geometry buffers for download.");
 		return;
 	}
 
@@ -923,7 +1218,7 @@ void CLightBakerDlg::DownloadAndApplyToLevel()
 		// don't update vertices for surfaces if they weren't touched in the bake
 		if (!TestMaskBit(sectorMask.RawData(), nSectorIndex)
 			|| !TestMaskBit(layerMask.RawData(), nLayerIndex)
-			|| !(surfaces[nSurfaceIndex].nFlags & ESurface_IsVisible))
+			|| !(surfaces[nSurfaceIndex].nFlags & EGpuSurface_IsVisible))
 		{
 			continue;
 		}
@@ -948,7 +1243,7 @@ void CLightBakerDlg::DownloadAndApplyToLevel()
 		m_pJedLevel->SurfaceSetVertexLight(nSectorIndex, nLocalSurfaceIndex, nLocalVertexIndex, color.w, color.x, color.y, color.z);
 	}
 
-	// todo: do this on gpu
+	// TODO: do this on gpu
 	for (int nSectorIndex = 0; nSectorIndex < m_nNumSectors; ++nSectorIndex)
 	{
 		if (!TestMaskBit(sectorMask.RawData(), nSectorIndex))
@@ -956,7 +1251,6 @@ void CLightBakerDlg::DownloadAndApplyToLevel()
 			continue;
 		}
 
-		// todo: might be better to actually also trace probes at the center of sectors to get better ambient
 		float4 ambientColor = { 0,0,0,0 };
 		float totalAmbient = 0.0f;
 
@@ -984,7 +1278,7 @@ void CLightBakerDlg::DownloadAndApplyToLevel()
 			float invTotalAmbient = totalAmbient < 1e-5f ? 0.0f : 1.0f / totalAmbient;
 			ambientColor *= invTotalAmbient;
 
-			// todo: SED has rgb ambient for Jones?
+			// TODO: SED has rgb ambient for Jones?
 			sector.ambient = ambientColor.w;
 			m_pJedLevel->SetSector(nSectorIndex, &sector, s_ambient);
 		}
@@ -1013,21 +1307,21 @@ SColormap* CLightBakerDlg::LoadColormap(const wchar_t* sFileName)
 	SColormapHeader colormapHeader;
 	if (m_pJed->ReadFile(nFileHandle, &colormapHeader, sizeof(SColormapHeader)) != sizeof(SColormapHeader))
 	{
-		PrintMessage(m_pJed, msg_error, "Failed to read file '%ls'.", sFileName);
+		Jed::PrintMessage(m_pJed, msg_error, "Failed to read file '%ls'.", sFileName);
 		m_pJed->CloseFile(nFileHandle);
 		return nullptr;
 	}
 
 	if (strncmp(colormapHeader.magic, "CMP ", 4) != 0)
 	{
-		PrintMessage(m_pJed, msg_error, "Bad colormap header in file '%ls'.", sFileName);
+		Jed::PrintMessage(m_pJed, msg_error, "Bad colormap header in file '%ls'.", sFileName);
 		m_pJed->CloseFile(nFileHandle);
 		return nullptr;
 	}
 
 	if (colormapHeader.nVersion < 30)
 	{
-		PrintMessage(m_pJed, msg_error, "Unsupported colormap version for '%ls'.", sFileName);
+		Jed::PrintMessage(m_pJed, msg_error, "Unsupported colormap version for '%ls'.", sFileName);
 		m_pJed->CloseFile(nFileHandle);
 		return nullptr;
 	}
@@ -1035,7 +1329,7 @@ SColormap* CLightBakerDlg::LoadColormap(const wchar_t* sFileName)
 	uint8_t* paColors = new uint8_t[3 * 256];
 	if (m_pJed->ReadFile(nFileHandle, paColors, (3 * 256)) != (3 * 256))
 	{
-		PrintMessage(m_pJed, msg_error, "Failed to read colors from '%ls'.", sFileName);
+		Jed::PrintMessage(m_pJed, msg_error, "Failed to read colors from '%ls'.", sFileName);
 		m_pJed->CloseFile(nFileHandle);
 		delete[] paColors;
 		return nullptr;
@@ -1044,7 +1338,7 @@ SColormap* CLightBakerDlg::LoadColormap(const wchar_t* sFileName)
 	uint8_t* paLightLevels = new uint8_t[64 * 256];
 	if (m_pJed->ReadFile(nFileHandle, paLightLevels, (64 * 256)) != (64 * 256))
 	{
-		PrintMessage(m_pJed, msg_error, "Failed to read light levels from '%ls'.", sFileName);
+		Jed::PrintMessage(m_pJed, msg_error, "Failed to read light levels from '%ls'.", sFileName);
 		delete[] paColors;
 		delete[] paLightLevels;
 		m_pJed->CloseFile(nFileHandle);
@@ -1083,21 +1377,21 @@ uint32_t CLightBakerDlg::LoadMaterialFillColor(const wchar_t* sFileName, const S
 	SMaterialFileHeader materialHeader;
 	if (m_pJed->ReadFile(nFileHandle, &materialHeader, sizeof(SMaterialFileHeader)) != sizeof(SMaterialFileHeader))
 	{
-		PrintMessage(m_pJed, msg_error, "Failed to read file '%ls'.", sFileName);
+		Jed::PrintMessage(m_pJed, msg_error, "Failed to read file '%ls'.", sFileName);
 		m_pJed->CloseFile(nFileHandle);
 		return 0;
 	}
 
 	if (memcmp(materialHeader.magic, "MAT ", 4u))
 	{
-		PrintMessage(m_pJed, msg_error, "Bad material header in file '%ls'.", sFileName);
+		Jed::PrintMessage(m_pJed, msg_error, "Bad material header in file '%ls'.", sFileName);
 		m_pJed->CloseFile(nFileHandle);
 		return 0;
 	}
 
 	if (materialHeader.nVersion != 0x32)
 	{
-		PrintMessage(m_pJed, msg_error, "Unsupported material version for '%ls'.", sFileName);
+		Jed::PrintMessage(m_pJed, msg_error, "Unsupported material version for '%ls'.", sFileName);
 		m_pJed->CloseFile(nFileHandle);
 		return 0;
 	}
@@ -1108,7 +1402,7 @@ uint32_t CLightBakerDlg::LoadMaterialFillColor(const wchar_t* sFileName, const S
 	{
 		if (m_pJed->ReadFile(nFileHandle, &recordHeader, sizeof(SMaterialRecordHeader)) != sizeof(SMaterialRecordHeader))
 		{
-			PrintMessage(m_pJed, msg_error, "Failed to read material record header from '%ls'.", sFileName);
+			Jed::PrintMessage(m_pJed, msg_error, "Failed to read material record header from '%ls'.", sFileName);
 			m_pJed->CloseFile(nFileHandle);
 			return 0;
 		}
@@ -1117,10 +1411,12 @@ uint32_t CLightBakerDlg::LoadMaterialFillColor(const wchar_t* sFileName, const S
 			SMaterialRecordHeaderExt ext;
 			if (m_pJed->ReadFile(nFileHandle, &ext, sizeof(SMaterialRecordHeaderExt)) != sizeof(SMaterialRecordHeaderExt))
 			{
-				PrintMessage(m_pJed, msg_error, "Failed to read material texture header from '%ls'.", sFileName);
+				Jed::PrintMessage(m_pJed, msg_error, "Failed to read material texture header from '%ls'.", sFileName);
 				m_pJed->CloseFile(nFileHandle);
 				return 0;
 			}
+
+			// TODO: load the texture data to the GPU for reading in the shaders
 		}
 	}
 	m_materialColorCache.emplace(sFileName, recordHeader.nFillColor);
@@ -1128,6 +1424,197 @@ uint32_t CLightBakerDlg::LoadMaterialFillColor(const wchar_t* sFileName, const S
 	m_pJed->CloseFile(nFileHandle);
 
 	return recordHeader.nFillColor;
+}
+
+bool CLightBakerDlg::CleavePrepass(bool bWarnUser)
+{
+	const int nNumLights = m_pJedLevel->NLights();
+
+	// check that we actually have a light to cleave, we'll need to warn the user if so (and can skip this if none)
+	bool bHasCleave = false;
+	for (int nLightIndex = 0; nLightIndex < nNumLights; ++nLightIndex)
+	{
+		tjedlightrec light;
+		memset(&light, 0, sizeof(tjedlightrec));
+		if (FAILED(m_pJedLevel->GetLight(nLightIndex, &light, lt_flags)))
+			continue;
+
+		// skip lights that don't cleave
+		if (!(light.flags & ELight_Cleave))
+			continue;
+
+		// skip sky/anchor/etc
+		if(light.flags & (ELight_Sky | ELight_Anchor | ELight_Ambient))
+			continue;
+
+		// check sun
+		if ((light.flags & ELight_Sun) && (m_nBakeFlags & ELightBake_Sun) && (m_nBakeFlags & ELightBake_AllowSunCleave))
+		{
+			bHasCleave = true;
+			break;
+		}
+
+		// check point lights
+		if ((m_nBakeFlags & ELightBake_Lights) && (m_nBakeFlags & ELightBake_AllowLightCleave))
+		{
+			bHasCleave = true;
+			break;
+		}
+	}
+
+	if (!bHasCleave)
+		return true;
+
+	if (bWarnUser)
+	{
+		// warn the user that this is expensive and destructive if any cleaves will occur
+		HWND hWnd = GetSafeHwnd();
+		int nResult = ::MessageBox(hWnd, _T("One or more lights are set to cleave. This is a destructive process and may take a long time. Do you want to proceed?"), _T("Warning"), MB_YESNO | MB_ICONWARNING);
+		if (nResult == IDNO)
+			return false;
+	}
+
+	const auto startTime = std::chrono::high_resolution_clock::now();
+
+	FixupCogLinkedSurfaces();
+
+	for (int nLightIndex = 0; nLightIndex < nNumLights; ++nLightIndex)
+	{
+		tjedlightrec light;
+		memset(&light, 0, sizeof(tjedlightrec));
+		if (FAILED(m_pJedLevel->GetLight(nLightIndex, &light, lt_all)))
+			continue;
+
+		CCleaveLight pass(m_pJed, m_pJedLevel, m_nBakeFlags);
+		pass.PrepareGeometry(light, m_selectedSectorBitmask);
+	}
+
+	// make sure we have under 24 vertices per surface
+	SplitLargeSurfaces();
+
+	const auto endTime = std::chrono::high_resolution_clock::now();
+	const std::chrono::duration<float> deltaTime = endTime - startTime;
+
+	Jed::PrintMessage(m_pJed, msg_info, "Finished light cleaving in %g seconds.", deltaTime.count());
+
+	m_pJed->UpdateMap();
+
+	return true;
+}
+
+void CLightBakerDlg::SplitLargeSurfaces()
+{
+	int nNumSplitSurfaces = 0;
+	bool bFoundLargeSurface = false;
+
+	const int nNumSectors = m_pJedLevel->NSectors();
+	const int nPasses = 10;
+	for (int nPass = 0; nPass < nPasses; ++nPass)
+	{
+		bFoundLargeSurface = false;
+
+		for (int nSectorIndex = 0; nSectorIndex < nNumSectors; ++nSectorIndex)
+		{
+			int nSurfacesAdded = 0; // track how many surfaces were added to avoid spinning forever
+			int nNumSurfaces = m_pJedLevel->SectorNSurfaces(nSectorIndex);
+			for (int nSurfaceIndex = 0; nSurfaceIndex < nNumSurfaces && nSurfacesAdded < 1000; ++nSurfaceIndex)
+			{
+				if (m_pJedLevel->SurfaceNVertices(nSectorIndex, nSurfaceIndex) <= 24)
+					continue;
+
+				bFoundLargeSurface = true;
+
+				tjedsurfacerec source{};
+				if (FAILED(m_pJedLevel->GetSurface(nSectorIndex, nSurfaceIndex, &source, sf_all)))
+					continue;
+
+				const int nNumVertices = m_pJedLevel->SurfaceNVertices(nSectorIndex, nSurfaceIndex);
+				if (nNumVertices < 3)
+					continue;
+
+				double cx = 0.0, cy = 0.0, cz = 0.0;
+				if (FAILED(m_pJed->FindSurfaceCenter(nSectorIndex, nSurfaceIndex, &cx, &cy, &cz)))
+					continue;
+
+				std::optional<float3> normalOpt = Jed::QuerySurfaceNormal(m_pJedLevel, nSectorIndex, nSurfaceIndex);
+				if (!normalOpt.has_value())
+					continue;
+				float3 faceNormal = normalOpt.value();
+
+				std::optional<float3> splitVertexOpt = Jed::QuerySurfaceVertex(m_pJedLevel, nSectorIndex, nSurfaceIndex, nNumVertices / 2);
+				if (!splitVertexOpt.has_value())
+					continue;
+				float3 splitVertex = splitVertexOpt.value();
+
+				tjedvector cleaveNormal = Jed::WriteVector(normalize(cross(faceNormal, splitVertex - float3(cx, cy, cz))));
+				const int nNewSurfaceIndex = m_pJed->CleaveSurface(nSectorIndex, nSurfaceIndex, &cleaveNormal, cx, cy, cz);
+				if (nNewSurfaceIndex < 0 || source.adjoinsc < 0 || source.adjoinsf < 0)
+					continue;
+
+				Jed::PropagateGeoAfterCleave(m_pJedLevel, nSectorIndex, nSurfaceIndex, nNewSurfaceIndex, source);
+
+				// update the number of surfaces for this sector since we just added one and we'll want to process it too
+				nNumSurfaces = m_pJedLevel->SectorNSurfaces(nSectorIndex);
+
+				nSurfacesAdded++;
+
+				nNumSplitSurfaces++;
+			}
+		}
+
+		if (!bFoundLargeSurface)
+			break;
+	}
+
+	if (nNumSplitSurfaces > 0)
+		Jed::PrintMessage(m_pJed, msg_info, "Split %d surfaces with more than 24 vertices.", nNumSplitSurfaces);
+
+	if (bFoundLargeSurface)
+		Jed::PrintMessage(m_pJed, msg_warning, "Some surfaces still have more than 24 vertices after %d passes of splitting.", nPasses);
+}
+
+void CLightBakerDlg::FixupCogLinkedSurfaces()
+{
+	int nNumSurfacesUpdated = 0;
+
+	// scan cogs for linked surfaces and correctly mark them as cog linked so that the cleave tool doesn't break them
+	const int nNumCogs = m_pJedLevel->NCOgs();
+	for (int nCogIndex = 0; nCogIndex < nNumCogs; ++nCogIndex)
+	{
+		const int nNumValues = m_pJedLevel->NCOGValues(nCogIndex);
+		for (int nValueIndex = 0; nValueIndex < nNumValues; ++nValueIndex)
+		{
+			const int nCogValueType = m_pJedLevel->GetCOGValueType(nCogIndex, nValueIndex);
+			if (nCogValueType == ct_surface)
+			{
+				const char* sValue = m_pJedLevel->GetCOGValue(nCogIndex, nValueIndex);
+				if (sValue)
+				{
+					// surface references return the global surface number
+					int nGlobalSurfaceIndex = atoi(sValue);
+					auto sectorSurface = Jed::GetSectorSurfaceFromGlobalSurface(m_pJedLevel, nGlobalSurfaceIndex);
+					if (sectorSurface.has_value())
+					{
+						int nSectorIndex = sectorSurface->first;
+						int nSurfaceIndex = sectorSurface->second;
+
+						tjedsurfacerec surface;
+						memset(&surface, 0, sizeof(tjedsurfacerec));
+						if (SUCCEEDED(m_pJedLevel->GetSurface(nSectorIndex, nSurfaceIndex, &surface, sf_SurfFlags)))
+						{
+							surface.surfflags |= ESurface_CogLinked;
+							m_pJedLevel->SetSurface(nSectorIndex, nSurfaceIndex, &surface, sf_SurfFlags);
+
+							nNumSurfacesUpdated++;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if (nNumSurfacesUpdated > 0)
+		Jed::PrintMessage(m_pJed, msg_info, "Set CogLinked flag on %d surfaces.", nNumSurfacesUpdated);
 }
 
 extern "C"
@@ -1144,7 +1631,7 @@ extern "C"
 			g_pLightBaker->Create(IDD_LIGHTBAKER_DLG, pJedWindow);
 			if(!g_pLightBaker->CreateDeviceD3D())
 			{
-				PrintMessage(pJed, msg_error, "Failed to initialize 3D device.");
+				Jed::PrintMessage(pJed, msg_error, "Failed to initialize 3D device.");
 				return false;
 			}
 			bInit = true;
@@ -1152,7 +1639,7 @@ extern "C"
 
 		if (!bInit)
 		{
-			PrintMessage(pJed, msg_error, "Light Baker failed to initialize.");
+			Jed::PrintMessage(pJed, msg_error, "Light Baker failed to initialize.");
 			return false;
 		}
 

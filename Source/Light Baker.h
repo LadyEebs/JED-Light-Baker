@@ -4,146 +4,11 @@
 	#error "include 'pch.h' before including this file for PCH"
 #endif
 
-#include "Resource.h"
 #include "GpuBuffer.h"
-#include "Enums.h"
+#include "Types.h"
+#include "HWTypes.h"
 
-// GPU mirrored structs
-struct SSector
-{
-	uint32_t nFirstSurface;
-	uint32_t nNumSurfaces;
-	uint32_t nLayerIndex;
-	uint32_t _padding;
-	float4   center;
-};
-
-struct SSurface
-{
-	float4    albedo;
-	float4    emissive;
-	float4    normal;
-	uint32_t  nFirstVertex;
-	uint32_t  nNumVertices;
-	int32_t   nAdjoinSector;
-	uint32_t  nFlags;
-};
-
-struct SVertex
-{
-	uint32_t  nSectorIndex;
-	uint32_t  nSurfaceIndex;
-	uint32_t  nLocalSurfaceIndex;
-	uint32_t  nLocalVertexIndex;
-	float4    position;
-};
-
-struct SLight
-{
-	uint32_t  nFlags;
-	int32_t   nSectorIndex;
-	int32_t   nLayerIndex;
-	float     range;
-	float4    position;
-	float4    color;
-};
-
-// be careful of constant buffer padding here
-struct SLevelInfo
-{
-	int32_t nSunLightIndex;
-	int32_t nSkyLightIndex;
-	int32_t nAnchorLightIndex;
-	int32_t _padding0;
-
-	int32_t nTotalSectors;
-	int32_t nTotalSurfaces;
-	int32_t nTotalVertices;
-	int32_t nTotalLights;
-
-	uint32_t nBakeFlags;
-	int32_t  nSkyEmissiveRays;
-	int32_t  nIndirectRays;
-	float    normalSmoothCos;
-
-	int32_t  _padding2[4];
-};
-
-// Minimal colormap support (for reading basic color and light table)
-struct SColormapHeader
-{
-	char    magic[4]; // "CMP "
-	int32_t nVersion;
-	int32_t nFlags;
-	float3  colorTint;
-	int32_t _padding[10];
-};
-
-struct SColormap
-{
-	struct
-	{
-		uint8_t r, g, b;
-	} colors[256];
-	uint8_t nLightLevels[64 * 256];
-
-	float3 GetColor(uint32_t nIndex, int nLightLevel) const;
-};
-
-// Minimal material support (for reading material fill colors)
-struct SColorFormat
-{
-	uint32_t nColorMode = 0;
-	uint32_t nBitsPerPixel = 0;
-	uint32_t nRedBits = 0;
-	uint32_t nGreenBits = 0;
-	uint32_t nBlueBits = 0;
-	uint32_t nRedShift = 0;
-	uint32_t nGreenShift = 0;
-	uint32_t nBlueShift = 0;
-	uint32_t nRedDiff = 0;
-	uint32_t nGreenDiff = 0;
-	uint32_t nBlueDiff = 0;
-	uint32_t nAlphaBits = 0;
-	uint32_t nAlphaShift = 0;
-	uint32_t nAlphaDiff = 0;
-};
-
-struct SMaterialFileHeader
-{
-	uint8_t      magic[4];
-	uint32_t     nVersion = 0;
-	uint32_t     nType = 0;
-	uint32_t     nRecordCount = 0;
-	uint32_t     nTextureCount = 0;
-	SColorFormat colorFormat;
-};
-
-enum EMaterialRecordType
-{
-	EMaterialRecordType_Color = 0,
-	EMaterialRecordType_Texture = 0x8,
-};
-
-struct SMaterialRecordHeader
-{
-	uint32_t nTextureType = EMaterialRecordType_Color;
-	uint32_t nFillColor = 0;
-	uint32_t nUnknown1 = 0;
-	uint32_t nUnknown2 = 0;
-	uint32_t nUnknown3 = 0;
-	uint32_t nUnknown4 = 0;
-};
-
-struct SMaterialRecordHeaderExt
-{
-	uint32_t nUnknown = 0;
-	uint32_t nHeight = 0;
-	uint32_t nTransparentColor = 0;
-	uint32_t nTextureIndex = 0;
-};
-
-// todo: this is a monolithic class atm, can probably break it up
+// TODO: this is a monolithic class atm, can probably break it up
 class CLightBakerDlg
 	: public CDialogEx
 {
@@ -176,6 +41,9 @@ public:
 	BOOL m_bExtraLightEmissive;
 	BOOL m_bPhysicalFalloff;
 	BOOL m_bToneMap;
+	BOOL m_bAllowLightCleave;
+	BOOL m_bAllowSunLightCleave;
+	BOOL m_bSkyColorFromMaterials;
 
 	int m_nSkyEmissiveRayCount;
 	int m_nIndirectRayCount;
@@ -190,6 +58,8 @@ public:
 	afx_msg void OnBnClickedSunlightButton();
 	afx_msg void OnBnClickedSkylightButton();
 	afx_msg void OnBnClickedAnchorlightButton();
+	afx_msg void OnBnClickedCleaveAllButton();
+	afx_msg void OnBnClickedClearCachesButton();
 
 private:
 	// main entry point for baking process, everything below assumes flags etc are set
@@ -216,6 +86,7 @@ private:
 	void BuildLayerBitmask();
 	void BuildLights();
 	void BuildGeometry();
+	bool BuildNormalAdjacency(std::vector<SSpatialVertex>& vertices, const std::vector<uint64_t>& adjoinEdges, std::vector<uint32_t>& offsets, std::vector<uint32_t>& indices);
 
 	// helpers for shaders and buffers
 	int CreateComputeShader(ID3D11Device* pDevice, ID3D11ComputeShader** pShader, UINT resourceID) const;
@@ -223,6 +94,8 @@ private:
 
 	// updates the level info constant buffer for all passes
 	void UpdateLevelInfo();
+	template<typename T>
+	bool UploadStructuredBuffer(CGpuBuffer& buffer, const std::vector<T>& data);
 
 	// helper for dispatching a bake pass, Z is ignored since we're only doing 1d and 2d dispatches
 	void DispatchBakePass(int nDispatchX, int nDispatchY, ID3D11ComputeShader* pShader, CGpuBuffer* pReadBuffer, CGpuBuffer* pWriteBuffer);
@@ -235,7 +108,12 @@ private:
 	// downloads the results from the GPU and writes them back to the level
 	void DownloadAndApplyToLevel();
 
-	void SelectOrCreateLight(int nLightFlags);
+	void SelectOrCreateLight(int nLightFlags, float intensity, const float3& rgb, float rgbIntensity);
+
+	bool CleavePrepass(bool bWarnUser);
+	void SplitLargeSurfaces();
+
+	void FixupCogLinkedSurfaces();
 
 private:
 	// Jed
@@ -257,6 +135,8 @@ private:
 	CGpuBuffer m_colorLastResultBuffer;
 	CGpuBuffer m_colorCurrResultBuffer;
 	CGpuBuffer m_accumulationBuffer;
+	CGpuBuffer m_normalNeighborOffsetsBuffer;
+	CGpuBuffer m_normalNeighborIndicesBuffer;
 
 	ID3D11ComputeShader* m_pBakeSunShader;
 	ID3D11ComputeShader* m_pBakeDirectShader;
@@ -270,6 +150,7 @@ private:
 	// State
 	int m_nSunLightIndex, m_nSkyLightIndex, m_nAnchorLightIndex;
 	uint32_t m_nBakeFlags;
+	std::vector<uint32_t> m_selectedSectorBitmask;
 
 	// Resource counts, only valid during BakeLighting
 	int m_nNumSectors, m_nNumQueuedSectors, m_nNumLights, m_nNumLayers;
@@ -279,6 +160,34 @@ private:
 	std::unordered_map<std::wstring, SColormap> m_colormapCache;
 	std::unordered_map<std::wstring, uint32_t>  m_materialColorCache;
 };
+
+template<typename T>
+bool CLightBakerDlg::UploadStructuredBuffer(CGpuBuffer& buffer, const std::vector<T>& data)
+{
+	if (data.size() > (size_t)INT_MAX)
+		return false;
+
+	buffer.Release();
+	const int nElements = std::max(1, (int)data.size());
+
+	if (!buffer.Create(m_pDeviceD3D, m_pDeviceContextD3D, nElements, sizeof(T), DXGI_FORMAT_UNKNOWN, 0, 1, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED))
+		return false;
+
+	CGpuBufferMapping<T> mapped(&buffer, D3D11_MAP_WRITE);
+
+	if (!mapped)
+	{
+		buffer.Release();
+		return false;
+	}
+
+	if (data.empty())
+		mapped[0] = T{};
+	else
+		std::memcpy(mapped.RawData(), data.data(), data.size() * sizeof(T));
+
+	return true;
+}
 
 class CLightBakerApp
 	: public CWinApp

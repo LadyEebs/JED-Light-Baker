@@ -1,13 +1,57 @@
-// pch.h: This is a precompiled header file.
-// Files listed below are compiled only once, improving build performance for future builds.
-// This also affects IntelliSense performance, including code completion and many code browsing features.
-// However, files listed here are ALL re-compiled if any one of them is updated between builds.
-// Do not add files here that you will be updating frequently as this negates the performance advantage.
-
 #ifndef PCH_H
 #define PCH_H
 
-// add headers that you want to pre-compile here
 #include "framework.h"
+
+#pragma comment( lib, "d3d11.lib" )
+#pragma comment( lib, "dxgi.lib" )
+#pragma comment( lib, "dxguid.lib" )
+#pragma comment( lib, "dxguid" )
+
+#include <d3d11.h>
+#include <d3d11_1.h>
+#include <d3d11_2.h>
+#include <d3d11_3.h>
+#include <dxgi.h>
+
+#undef min
+#undef max
+
+#include "IJed.h"
+
+#include <algorithm>
+#include <cmath>
+#include <math.h>
+#include <vector>
+#include <string>
+#include <optional>
+#include <chrono>
+#include <unordered_map>
+#include <unordered_set>
+
+static constexpr float SRGB_GAMMA = 1.0f / 2.2f;
+static constexpr float SRGB_INVERSE_GAMMA = 2.2f;
+static constexpr float SRGB_ALPHA = 0.055f;
+
+// Converts a single linear channel to srgb
+inline float ToSRGB(float channel)
+{
+	if (channel <= 0.0031308)
+		return 12.92f * channel;
+	else
+		return (1.0f + SRGB_ALPHA) * powf(channel, 1.0f / 2.4f) - SRGB_ALPHA;
+}
+
+// Converts a single srgb channel to rgb
+inline float ToLinear(float channel)
+{
+	if (channel <= 0.04045f)
+		return channel / 12.92f;
+	else
+		return powf((channel + SRGB_ALPHA) / (1.0f + SRGB_ALPHA), 2.4f);
+}
+
+#include "float3.h"
+#include "float4.h"
 
 #endif //PCH_H

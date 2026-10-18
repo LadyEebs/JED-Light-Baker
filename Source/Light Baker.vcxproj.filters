@@ -51,6 +51,15 @@
     <ClCompile Include="GpuBuffer.cpp">
       <Filter>Source Files\D3D</Filter>
     </ClCompile>
+    <ClCompile Include="CleaveLight.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Geometry.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Jed.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="Light Baker.def">
@@ -72,6 +81,9 @@
       <Filter>Resource Files\Shaders</Filter>
     </None>
     <None Include="GenSmoothNormals.cso">
+      <Filter>Resource Files\Shaders</Filter>
+    </None>
+    <None Include="BakeAmbient.cso">
       <Filter>Resource Files\Shaders</Filter>
     </None>
   </ItemGroup>
@@ -103,6 +115,24 @@
     <ClInclude Include="float3.h">
       <Filter>Header Files\Math</Filter>
     </ClInclude>
+    <ClInclude Include="CleaveLight.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Enums.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Geometry.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="HWTypes.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Jed.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Types.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="Light Baker.rc">
@@ -123,6 +153,9 @@
       <Filter>Source Files\Shaders</Filter>
     </FxCompile>
     <FxCompile Include="GenSmoothNormals.hlsl">
+      <Filter>Source Files\Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="BakeAmbient.hlsl">
       <Filter>Source Files\Shaders</Filter>
     </FxCompile>
   </ItemGroup>

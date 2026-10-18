@@ -202,6 +202,8 @@
     </FxCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="CleaveLight.cpp" />
+    <ClCompile Include="Geometry.cpp" />
     <ClCompile Include="GpuBuffer.cpp" />
     <ClCompile Include="Jed.cpp" />
     <ClCompile Include="Light Baker.cpp" />
@@ -213,6 +215,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <None Include="BakeAmbient.cso" />
     <None Include="BakeDirect.cso" />
     <None Include="BakeIndirect.cso" />
     <None Include="BakeSkyEmissive.cso" />
@@ -222,17 +225,21 @@
     <None Include="Light Baker.def" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="CleaveLight.h" />
     <ClInclude Include="Enums.h" />
     <ClInclude Include="float3.h" />
     <ClInclude Include="float4.h" />
     <ClInclude Include="framework.h" />
+    <ClInclude Include="Geometry.h" />
     <ClInclude Include="GpuBuffer.h" />
+    <ClInclude Include="HWTypes.h" />
     <ClInclude Include="IJed.h" />
     <ClInclude Include="Jed.h" />
     <ClInclude Include="Light Baker.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="Resource.h" />
     <ClInclude Include="targetver.h" />
+    <ClInclude Include="Types.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="Light Baker.rc" />

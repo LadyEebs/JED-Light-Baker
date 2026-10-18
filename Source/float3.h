@@ -4,6 +4,8 @@ struct float3
 {
 	constexpr float3() {}
 	constexpr float3(float x, float y, float z) : x(x), y(y), z(z) {}
+	constexpr float3(double x, double y, double z) : x((float)x), y((float)y), z((float)z) {}
+	constexpr float3(int x, int y, int z) : x((float)x), y((float)y), z((float)z) {}
 
 	float x;
 	float y;
@@ -50,6 +52,11 @@ struct float3
 		return *this;
 	}
 };
+
+inline float3 operator-(const float3& v)
+{
+	return {-v.x, -v.y, -v.z};
+}
 
 inline float3 operator*(const float3& a, const float3& b)
 {

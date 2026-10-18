@@ -32,17 +32,20 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 		{
 			float4 color = float4(0,0,0,0);
 			uint hitFlags = aSurfaces[payload.nHitSurfaceIndex].nFlags;
-			if((g_levelInfo.nBakeFlags & ELightBake_Sky) && (hitFlags & ESurface_IsSky))
+			if((g_levelInfo.nBakeFlags & ELightBake_Sky) && (hitFlags & EGpuSurface_IsSky))
 			{
+				// always start with the sky light color because it also includes the user sky intensity
 				color = aLights[g_levelInfo.nSkyLightIndex].color;
+				if (g_levelInfo.nBakeFlags & ELightBake_SkyColorFromMaterial)
+					color *= aSurfaces[payload.nHitSurfaceIndex].albedo;
                 
                 // for ceiling skies, attenuate by angle to the ceiling plane (which is always pointing straight down)
-                if (hitFlags & ESurface_IsCeilingSky)
+                if (hitFlags & EGpuSurface_IsCeilingSky)
                 {
                     payload.attenuation *= saturate(rayDir.z * 100.0);
                 }
 			}
-			else if((g_levelInfo.nBakeFlags & ELightBake_Emissive) && (hitFlags & ESurface_IsVisible))
+			else if((g_levelInfo.nBakeFlags & ELightBake_Emissive) && (hitFlags & EGpuSurface_IsVisible))
 			{
 				color = aSurfaces[payload.nHitSurfaceIndex].emissive;
 			}

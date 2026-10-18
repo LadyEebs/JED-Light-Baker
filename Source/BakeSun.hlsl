@@ -22,7 +22,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID)
 		payload.attenuation = float4(1,1,1,1);
 
 		bool bRayHit = TraceRay(payload, vertexData.nSectorIndex, vertexData.vertex + rayDir * kRayBias, rayTarget);
-		if (bRayHit && (aSurfaces[payload.nHitSurfaceIndex].nFlags & ESurface_IsSky))
+		if (bRayHit && (aSurfaces[payload.nHitSurfaceIndex].nFlags & EGpuSurface_IsSky))
 			color = ndotl * payload.attenuation * aLights[g_levelInfo.nSunLightIndex].color;
 	
 		// sun is the first pass so don't bother reading the previous result

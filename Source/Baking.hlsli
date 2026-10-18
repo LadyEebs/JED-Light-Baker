@@ -1,29 +1,33 @@
 // must match ELightBakeFlags
-static const uint ELightBake_Lights             =   0x1;
-static const uint ELightBake_Sun                =   0x2;
-static const uint ELightBake_Sky                =   0x4;
-static const uint ELightBake_Emissive           =   0x8;
-static const uint ELightBake_Indirect           =  0x10;
-static const uint ELightBake_Selected           =  0x20;
-static const uint ELightBake_VisibleLayers      =  0x40;
-static const uint ELightBake_GammaCorrect       =  0x80;
-static const uint ELightBake_ExtraLightEmissive = 0x100;
-static const uint ELightBake_ToneMap            = 0x200;
-static const uint ELightBake_PhysicalFalloff    = 0x400;
+static const uint ELightBake_Lights               =   0x1;
+static const uint ELightBake_Sun                  =   0x2;
+static const uint ELightBake_Sky                  =   0x4;
+static const uint ELightBake_Emissive             =   0x8;
+static const uint ELightBake_Indirect             =  0x10;
+static const uint ELightBake_Selected             =  0x20;
+static const uint ELightBake_VisibleLayers        =  0x40;
+static const uint ELightBake_GammaCorrect         =  0x80;
+static const uint ELightBake_ExtraLightEmissive   = 0x100;
+static const uint ELightBake_ToneMap              = 0x200;
+static const uint ELightBake_PhysicalFalloff      = 0x400;
+static const uint ELightBake_SkyColorFromMaterial = 0x800;
+static const uint ELightBake_AllowLightCleave     = 0x1000;
+static const uint ELightBake_AllowSunCleave       = 0x2000;
 
 // must match ESurfaceFlags
-static const uint ESurface_IsHorizonSky  = 0x1;
-static const uint ESurface_IsCeilingSky  = 0x2;
-static const uint ESurface_IsVisible     = 0x4;
-static const uint ESurface_IsTranslucent = 0x8;
-static const uint ESurface_IsSky = ESurface_IsHorizonSky | ESurface_IsCeilingSky;
+static const uint EGpuSurface_IsHorizonSky  = 0x1;
+static const uint EGpuSurface_IsCeilingSky  = 0x2;
+static const uint EGpuSurface_IsVisible     = 0x4;
+static const uint EGpuSurface_IsTranslucent = 0x8;
+static const uint EGpuSurface_IsSky = EGpuSurface_IsHorizonSky | EGpuSurface_IsCeilingSky;
 
 // must match ELightFlags
 static const uint ELight_NotBlocked = 0x1;
 static const uint ELight_Sun        = 0x2;
 static const uint ELight_Sky        = 0x4;
 static const uint ELight_Anchor     = 0x8;
-static const uint ELight_Ambient    = 0x10;
+static const uint ELight_SpotLight  = 0x10;
+static const uint ELight_Ambient    = 0x20;
 
 static const float kSkyDistance = 512.0;
 
@@ -31,7 +35,7 @@ static const float kSkyDistance = 512.0;
 static const float kSurfaceAlpha = 90.0/255.0;
 
 // bias the ray along the ray dir to avoid self intersection or stuff like that
-static const float kRayBias = -1e-5;
+static const float kRayBias = -1e-4;
 
 // maximum number of adjoins to cross for a given ray (puts an upper bound on recursions for safety)
 static const int kMaxRecursion = 256; // should be more than enough?
@@ -152,7 +156,7 @@ bool IsLayerVisible(int nLayerIndex)
 // Test if a surface is visible
 bool IsSurfaceVisible(int nSurfaceIndex)
 {
-	return (aSurfaces[nSurfaceIndex].nFlags & ESurface_IsVisible);
+	return (aSurfaces[nSurfaceIndex].nFlags & EGpuSurface_IsVisible);
 }
 
 // Fetch the data for this vertex, return false if we should ignore the vertex
@@ -225,9 +229,9 @@ float4 InterpolateSurfaceLight(int nSurfaceIndex, float3 pos)
 		float3 wCurr = vCurr - pos;
 		float3 wNext = vNext - pos;
 
-        const float lenPrev = length(wPrev) + 1e-6;
-        const float lenCurr = length(wCurr) + 1e-6;
-        const float lenNext = length(wNext) + 1e-6;
+        const float lenPrev = length(wPrev) + 1e-5;
+        const float lenCurr = length(wCurr) + 1e-5;
+        const float lenNext = length(wNext) + 1e-5;
 
         wPrev /= lenPrev;
         wCurr /= lenCurr;
@@ -236,11 +240,11 @@ float4 InterpolateSurfaceLight(int nSurfaceIndex, float3 pos)
         // Compute tan(theta/2) for previous and next angles
         const float sinThetaPrev = length(cross(wCurr, wPrev));
         const float cosThetaPrev = dot(wCurr, wPrev);
-        const float tanHalfPrev = sinThetaPrev / (1.0 + cosThetaPrev + 1e-6);
+        const float tanHalfPrev = sinThetaPrev / (1.0 + cosThetaPrev + 1e-5);
 
         const float sinThetaNext = length(cross(wNext, wCurr));
         const float cosThetaNext = dot(wNext, wCurr);
-        const float tanHalfNext = sinThetaNext / (1.0 + cosThetaNext + 1e-6);
+        const float tanHalfNext = sinThetaNext / (1.0 + cosThetaNext + 1e-5);
 
         // Weight for this vertex
         const float weight = (tanHalfPrev + tanHalfNext) / lenCurr;
@@ -249,7 +253,7 @@ float4 InterpolateSurfaceLight(int nSurfaceIndex, float3 pos)
         totalWeight += weight;
     }
 
-    return totalWeight < 1e-6 ? float4(0,0,0,0) : vertexLight / totalWeight;
+    return totalWeight < 1e-5 ? float4(0,0,0,0) : vertexLight / totalWeight;
 }
 
 // Test if a point is within a surfaces edges
@@ -268,7 +272,7 @@ bool IsPointOnSurface(int nSurfaceIndex, float3 position)
 		const float3 vertex1 = aVertices[nFirstVertex + i].position.xyz;
 		const float3 vertex2 = aVertices[nFirstVertex + (i + 1) % nNumVertices].position.xyz;
 		const float dist = dot(cross(normal, vertex2 - vertex1), position - vertex1);
-		if (dist < -1e-6)
+		if (dist < -1e-4)
 		{
 			bResult = false;
 			break;
@@ -298,9 +302,9 @@ bool IsSurfCrossed(int nSurfaceIndex, float3 start, float3 end, inout float3 hit
 		const float distToStart = dot(normal, start - vertex);
 		const float distToEnd   = dot(normal, end - vertex);
 
-		const bool bAllOutsidePositive = (distToStart > 1e-6 && distToEnd > 1e-6);
-		const bool bAllOutsideNegative = (distToStart < -1e-6 && distToEnd < -1e-6);
-		const bool bBothOnPlane        = (abs(distToStart) <= 1e-6 && abs(distToEnd) <= 1e-6);
+		const bool bAllOutsidePositive = (distToStart > 1e-5 && distToEnd > 1e-5);
+		const bool bAllOutsideNegative = (distToStart < -1e-5 && distToEnd < -1e-5);
+		const bool bBothOnPlane        = (abs(distToStart) <= 1e-5 && abs(distToEnd) <= 1e-5);
 
 		[branch]
 		if (!bAllOutsidePositive && !bAllOutsideNegative)
@@ -380,11 +384,11 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 		{
 			// add transparent contributions
 			uint nSurfaceFlags = aSurfaces[nHitSurfaceIndex].nFlags;
-			if (nSurfaceFlags & ESurface_IsVisible)
+			if (nSurfaceFlags & EGpuSurface_IsVisible)
 			{
 				float4 albedo = aSurfaces[nHitSurfaceIndex].albedo;
                 float4 emissive = aSurfaces[nHitSurfaceIndex].emissive;
-				if (nSurfaceFlags & ESurface_IsTranslucent)
+				if (nSurfaceFlags & EGpuSurface_IsTranslucent)
                 {
                     albedo *= kSurfaceAlpha;
                     emissive *= kSurfaceAlpha;
@@ -393,7 +397,7 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 				const float4 surfaceLight = InterpolateSurfaceLight(nHitSurfaceIndex, hitPos);
                 payload.reflection += (albedo * surfaceLight + emissive) * payload.attenuation;
 
-				if (nSurfaceFlags & ESurface_IsTranslucent)
+				if (nSurfaceFlags & EGpuSurface_IsTranslucent)
 					payload.attenuation *= albedo + (1.0 - kSurfaceAlpha);
 			}
 			++nRecurseLevel;

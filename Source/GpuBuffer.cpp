@@ -3,7 +3,6 @@
 
 #include "GpuBuffer.h"
 
-// todo: move it out of the constructor is probably a good idea
 CGpuBuffer::CGpuBuffer()
 	: m_pDevice(nullptr)
 	, m_pDeviceContext(nullptr)

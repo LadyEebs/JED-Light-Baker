@@ -28,14 +28,12 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 		payload.attenuation = float4(1,1,1,1);
 
 		const bool bRayHit = TraceRay(payload, vertexData.nSectorIndex, vertexData.vertex + rayDir * kRayBias, rayTarget);
-		if (bRayHit && (aSurfaces[payload.nHitSurfaceIndex].nFlags & ESurface_IsVisible))
+		if (bRayHit && (aSurfaces[payload.nHitSurfaceIndex].nFlags & EGpuSurface_IsVisible))
 		{
 			const float4 surfaceLight = InterpolateSurfaceLight(payload.nHitSurfaceIndex, payload.hitPos);
 		
 			float4 color = aSurfaces[payload.nHitSurfaceIndex].albedo * surfaceLight;
-			color = color * payload.attenuation + payload.reflection;
-
-			localAcc += color * payload.attenuation;
+			localAcc += color * payload.attenuation + payload.reflection;
 		}
 	}
 
