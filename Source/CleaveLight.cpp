@@ -7,6 +7,30 @@ namespace
 {
 	constexpr int kMaxGeometryDepth = 25;
 	constexpr float kPointLightsize = 0.0075f;
+	constexpr double kCloseEnough = 10e-5; // match JED
+
+	static int GetMark(const SPolygon& polygon, const SPlane& plane, int i)
+	{
+		const double d = distance(plane, polygon.vertices[i]);
+		if (std::fabs(d) < kCloseEnough)
+			return 0;
+		return d > 0.0 ? 1 : -1;
+	}
+
+	static bool AddBoundaryPoint(float3(&boundaryPoints)[2], int& nBoundaryPoints, const float3& point)
+	{
+		for (int i = 0; i < nBoundaryPoints; ++i)
+		{
+			if (lengthSq(point - boundaryPoints[i]) <= 1e-12f)
+				return true;
+		}
+
+		if (nBoundaryPoints == 2)
+			return false;
+
+		boundaryPoints[nBoundaryPoints++] = point;
+		return true;
+	};
 }
 
 CCleaveLight::CCleaveLight(IJED* pJed, IJEDLevel* pJedLevel, uint32_t nBakeFlags)
@@ -226,11 +250,11 @@ void CCleaveLight::ProcessSectorPlaneRelations(const tjedlightrec& light, const 
 					// outside, find the closest point on each edge
 					closestDistanceSq = std::numeric_limits<float>::max();
 
-					const size_t vertexCount = clippedPoly.vertices.size();
-					for (size_t i = 0; i < vertexCount; ++i)
+					const size_t nVertexCount = clippedPoly.vertices.size();
+					for (size_t i = 0; i < nVertexCount; ++i)
 					{
 						const float3& a = clippedPoly.vertices[i];
-						const float3& b = clippedPoly.vertices[(i + 1) % vertexCount];
+						const float3& b = clippedPoly.vertices[(i + 1) % nVertexCount];
 						const float3 edge = b - a;
 						const float edgeLengthSq = lengthSq(edge);
 
@@ -277,102 +301,207 @@ void CCleaveLight::CleaveVisibleSurfaces(int nSectorIndex, const float3& sourceP
 	if (nPlaneCount == 0)
 		return;
 
-	int nSurfacesAdded = 0; // track how many surfaces were added to avoid spinning forever
-	int nSurfaceCount = m_pJedLevel->SectorNSurfaces(nSectorIndex);
-	for (int nSurfaceIndex = 0; nSurfaceIndex < nSurfaceCount && nSurfacesAdded < 1000; ++nSurfaceIndex)
+	int nSurfacesAdded = 0;
+	const int nInitialSurfaceCount = m_pJedLevel->SectorNSurfaces(nSectorIndex);
+	for (int nSurfaceIndex = 0; nSurfaceIndex < nInitialSurfaceCount && nSurfacesAdded < 1000; ++nSurfaceIndex)
+		ProcessSurface(nSectorIndex, nSurfaceIndex, 0, sourcePosition, lightRange, clipVolume, cleavePlanes, bDirectionalSource, nSurfacesAdded);
+}
+
+bool CCleaveLight::CanSplit(const SPolygon& polygon, const SPlane& plane) const
+{
+	const size_t nVertices = polygon.vertices.size();
+	if (nVertices < 3)
+		return false;
+
+	bool bPositive = false;
+	bool bNegative = false;
+
+	for (size_t i = 0; i < nVertices; ++i)
 	{
-		tjedsurfacerec source;
-		memset(&source, 0, sizeof(tjedsurfacerec));
-		if (FAILED(m_pJedLevel->GetSurface(nSectorIndex, nSurfaceIndex, &source, sf_all)))
-			continue;
+		const float3& a = polygon.vertices[i];
+		const float3& b = polygon.vertices[(i + 1) % nVertices];
 
-		// ignore surfaces that can't be seen or are not diffuse/gouraud
-		// TODO: should we actually cleave solid color surfaces too?
-		if (source.geo < EGeoMode_Textured || source.light < ELightMode_Diffuse)
-			continue;
+		if (!std::isfinite(a.x) || !std::isfinite(a.y) || !std::isfinite(a.z) || !std::isfinite(b.x) || !std::isfinite(b.y) || !std::isfinite(b.z))
+			return false;
 
-		// ignore cog-linked and sky surfaces (cog linked surfaces are for game logic and cleaving them would break the cogs)
-		if ((source.surfflags & ESurface_IsSky) || (source.surfflags & ESurface_CogLinked))
-			continue;
+		// repeated consecutive vertices make this polygon unsafe to split
+		if (lengthSq(b - a) <= 1e-20f)
+			return false;
 
-		std::optional<SPolygon> currentPolygonOpt = Jed::GetSurfacePolygon(m_pJedLevel, nSectorIndex, nSurfaceIndex);
-		if (!currentPolygonOpt.has_value())
-			continue;
-		SPolygon& currentPolygon = currentPolygonOpt.value();
+		const double d = distance(plane, polygon.vertices[i]);
+		if (!std::isfinite(d))
+			return false;
 
-		// if the surface has a really small area, then don't bother cleaving it
-		if (currentPolygon.Area() < 1e-3f)
-			continue;
-
-		std::optional<float3> normalOpt = Jed::QuerySurfaceNormal(m_pJedLevel, nSectorIndex, nSurfaceIndex);
-		if (!normalOpt.has_value())
-			continue;
-		float3 normal = normalOpt.value();
-		
-		if (bDirectionalSource)
+		if (std::fabs(d) >= kCloseEnough)
 		{
-			if (dot(normal, sourcePosition) < -1e-5f)
+			bPositive |= d > 0.0;
+			bNegative |= d < 0.0;
+		}
+	}
+
+	if (!bPositive || !bNegative)
+		return false;
+
+	// a valid split has exactly two distinct boundary intersection points
+	float3 boundaryPoints[2];
+	int nBoundaryPoints = 0;
+
+	// JED creates intersection vertices only on strict sign crossings
+	for (size_t i = 0; i < nVertices; ++i)
+	{
+		const size_t j = (i + 1) % nVertices;
+		const int aMark = GetMark(polygon, plane, i);
+		const int bMark = GetMark(polygon, plane, j);
+
+		if (aMark == 0 || aMark != -bMark)
+			continue;
+
+		const double da = distance(plane, polygon.vertices[i]);
+		const double db = distance(plane, polygon.vertices[j]);
+		const double denominator = da - db;
+
+		if (!std::isfinite(denominator) || denominator == 0.0)
+			return false;
+
+		const double t = da / denominator;
+		if (!std::isfinite(t) || t < 0.0 || t > 1.0)
+			return false;
+
+		const float3& a = polygon.vertices[i];
+		const float3& b = polygon.vertices[j];
+		const float3 intersection = { (float)(a.x + (b.x - a.x) * t), (float)(a.y + (b.y - a.y) * t), (float)(a.z + (b.z - a.z) * t) };
+
+		if (!AddBoundaryPoint(boundaryPoints, nBoundaryPoints, intersection))
+			return false;
+	}
+
+	// validate isolated on-plane vertices
+	for (size_t i = 0; i < nVertices; ++i)
+	{
+		if (GetMark(polygon, plane, i) != 0)
+			continue;
+
+		const int nPrevious = (i + nVertices - 1) % nVertices;
+		const int nNext = (i + 1) % nVertices;
+		const int nPreviousMark = GetMark(polygon, plane, nPrevious);
+		const int nNextMark = GetMark(polygon, plane, nNext);
+
+		if (nPreviousMark == 0 || nNextMark == 0 || nPreviousMark != -nNextMark)
+			return false;
+
+		if (!AddBoundaryPoint(boundaryPoints, nBoundaryPoints, polygon.vertices[i]))
+			return false;
+	}
+
+	return nBoundaryPoints == 2;
+}
+
+void CCleaveLight::ProcessSurface(int nSectorIndex, int nSurfaceIndex, size_t nFirstPlane, const float3& sourcePosition, float lightRange, const SLightClipVolume& clipVolume, const std::vector<SPlane>& cleavePlanes, bool bDirectionalSource, int& nSurfacesAdded)
+{
+	const size_t nPlaneCount = std::min(cleavePlanes.size(), clipVolume.clip.size());
+
+	if (nSurfacesAdded >= 1000 || nSurfaceIndex < 0 || nSurfaceIndex >= m_pJedLevel->SectorNSurfaces(nSectorIndex))
+		return;
+
+	tjedsurfacerec source{};
+	if (FAILED(m_pJedLevel->GetSurface(nSectorIndex, nSurfaceIndex, &source, sf_all)))
+		return;
+
+	// ignore surfaces that can't be seen or are not diffuse/gouraud
+	// TODO: should we actually cleave solid color surfaces too?
+	if (source.geo < EGeoMode_Textured || source.light < ELightMode_Diffuse)
+		return;
+
+	// ignore cog-linked and sky surfaces (cog linked surfaces are for game logic and cleaving them would break the cogs)
+	if ((source.surfflags & ESurface_IsSky) || (source.surfflags & ESurface_CogLinked))
+		return;
+
+	auto currentPolygonOpt = Jed::GetSurfacePolygon(m_pJedLevel, nSectorIndex, nSurfaceIndex);
+	if (!currentPolygonOpt.has_value())
+		return;
+
+	// if the surface has a really small area, then don't bother cleaving it
+	const SPolygon& currentPolygon = currentPolygonOpt.value();
+	if (currentPolygon.vertices.size() < 3 || currentPolygon.Area() < 1e-3f)
+		return;
+
+	auto normalOpt = Jed::QuerySurfaceNormal(m_pJedLevel, nSectorIndex, nSurfaceIndex);
+	if (!normalOpt.has_value())
+		return;
+
+	const float3 normal = normalOpt.value();
+
+	if (bDirectionalSource)
+	{
+		if (dot(normal, sourcePosition) < -1e-5f)
+			return;
+	}
+	else
+	{
+		const float surfaceDistance = dot(normal, currentPolygon.vertices.front());
+		const float lightDistance = dot(normal, sourcePosition);
+		if (std::fabs(surfaceDistance - lightDistance) > lightRange || lightDistance < surfaceDistance)
+			return;
+	}
+
+	// the surface has to be at least partially lit through the adjoin to be worth splitting
+	const SPolygon clippedSurface = currentPolygon.ClipAgainstPlanes(clipVolume.clip, 1e-5f);
+	if (clippedSurface.vertices.size() < 3)
+		return;
+
+	for (size_t nPlaneIndex = nFirstPlane; nPlaneIndex < nPlaneCount && nSurfacesAdded < 1000; ++nPlaneIndex)
+	{
+		if (!clipVolume.clip[nPlaneIndex].bCanCleave)
+			continue;
+
+		// re-fetch the polygon because a previous plane may have cleaved it
+		auto polygonOpt = Jed::GetSurfacePolygon(m_pJedLevel, nSectorIndex, nSurfaceIndex);
+		if (!polygonOpt.has_value())
+			break;
+
+		const SPolygon& polygon = polygonOpt.value();
+		const SPlane& cleave = cleavePlanes[nPlaneIndex];
+
+		// the shadow boundary is the clip plane, so that decides when a split is needed
+		if (!polygon.CrossesPlane(clipVolume.clip[nPlaneIndex]))
+			continue;
+
+		if (!CanSplit(polygon, cleave))
+			continue;
+
+		tjedsurfacerec currentSource{};
+		if (FAILED(m_pJedLevel->GetSurface(nSectorIndex, nSurfaceIndex, &currentSource, sf_all)))
+			continue;
+
+		const bool bHasAdjoin = currentSource.adjoinsc >= 0 || currentSource.adjoinsf >= 0;
+
+		if (bHasAdjoin)
+		{
+			if (currentSource.adjoinsc < 0 || currentSource.adjoinsc >= m_pJedLevel->NSectors())
+				continue;
+
+			const int nAdjacentSurfaceCount = m_pJedLevel->SectorNSurfaces(currentSource.adjoinsc);
+			if (currentSource.adjoinsf < 0 || currentSource.adjoinsf >= nAdjacentSurfaceCount)
+				continue;
+
+			if (currentSource.adjoinsc == nSectorIndex && currentSource.adjoinsf == nSurfaceIndex)
+				continue;
+
+			auto adjacentPolygonOpt = Jed::GetSurfacePolygon(m_pJedLevel, currentSource.adjoinsc, currentSource.adjoinsf);
+			if (!adjacentPolygonOpt.has_value() || !CanSplit(adjacentPolygonOpt.value(), cleave))
 				continue;
 		}
-		else
-		{
-			const float surfaceDistance = dot(normal, currentPolygon.vertices.front());
-			const float lightDistance = dot(normal, sourcePosition);
-			if (std::fabs(surfaceDistance - lightDistance) > lightRange || lightDistance < surfaceDistance)
-				continue;
-		}
 
-		// the surface has to be at least partially lit through the adjoin to be worth splitting
-		const SPolygon clippedSurface = currentPolygon.ClipAgainstPlanes(clipVolume.clip, 1e-5f);
-		if (clippedSurface.vertices.size() < 3)
+		tjedvector cleaveNormal = Jed::WriteVector(cleave.normal);
+		const int nNewSurface = m_pJed->CleaveSurface(nSectorIndex, nSurfaceIndex, &cleaveNormal, cleave.point.x, cleave.point.y, cleave.point.z);
+		if (nNewSurface < 0)
 			continue;
 
-		bool bCleaved = false;
-		for (size_t nPlaneIndex = 0; nPlaneIndex < nPlaneCount; ++nPlaneIndex)
-		{
-			if (!clipVolume.clip[nPlaneIndex].bCanCleave)
-				continue;
+		Jed::PropagateGeoAfterCleave(m_pJedLevel, nSectorIndex, nSurfaceIndex, nNewSurface, currentSource);
+		++nSurfacesAdded;
 
-			// the shadow boundary is the clip plane, so that decides when a split is needed
-			if (!currentPolygon.CrossesPlane(clipVolume.clip[nPlaneIndex]))
-				continue;
-
-			// Re-fetch the polygon because a previous plane may have cleaved it.
-			auto polygonOpt = Jed::GetSurfacePolygon(m_pJedLevel, nSectorIndex, nSurfaceIndex);
-			if (!polygonOpt.has_value())
-				continue;
-
-			SPolygon& polygon = polygonOpt.value();
-
-			const SPlane& cleave = cleavePlanes[nPlaneIndex];
-
-			SPlane oppositeCleave = cleave;
-			oppositeCleave.normal = -oppositeCleave.normal;
-
-			const SPolygon positivePart = currentPolygon.ClipAgainstPlanes({cleave}, 1e-5f);
-			const SPolygon negativePart = currentPolygon.ClipAgainstPlanes({oppositeCleave}, 1e-5f);
-
-			// reject cleaves that produce an edge, degenerate polygon, or tiny sliver
-			if (positivePart.vertices.size() < 3 || negativePart.vertices.size() < 3 || positivePart.IsDegenerate(1e-5f) || negativePart.IsDegenerate(1e-5f))
-			{
-				continue;
-			}
-
-			tjedvector cleaveNormal = Jed::WriteVector(cleave.normal);
-
-			const int nNewSurface = m_pJed->CleaveSurface(nSectorIndex, nSurfaceIndex, &cleaveNormal, cleave.point.x, cleave.point.y, cleave.point.z);
-			if (nNewSurface >= 0)
-			{
-				Jed::PropagateGeoAfterCleave(m_pJedLevel, nSectorIndex, nSurfaceIndex, nNewSurface, source);
-				bCleaved = true;
-				nSurfacesAdded++;
-			}
-		}
-
-		// pick up the new surfaces that were added to the sector so they get the remaining planes applied
-		if (bCleaved)
-		{
-			nSurfaceCount = m_pJedLevel->SectorNSurfaces(nSectorIndex);
-		}
+		// process the new half only for planes after the one that created it
+		if (nPlaneIndex + 1 < nPlaneCount)
+			ProcessSurface(nSectorIndex, nNewSurface, nPlaneIndex + 1, sourcePosition, lightRange, clipVolume, cleavePlanes, bDirectionalSource, nSurfacesAdded);
 	}
 }

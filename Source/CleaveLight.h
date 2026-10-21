@@ -23,6 +23,10 @@ private:
 
 	void CleaveVisibleSurfaces(int nSectorIndex, const float3& sourcePosition, float lightRange, const SLightClipVolume& clipVolume, const std::vector<SPlane>& cleavePlanes, bool bDirectionalSource);
 
+	bool CanSplit(const SPolygon& polygon, const SPlane& plane) const;
+	void ProcessSurface(int nSectorIndex, int nSurfaceIndex, size_t nFirstPlane, const float3& sourcePosition, float lightRange, const SLightClipVolume& clipVolume,
+						const std::vector<SPlane>& cleavePlanes, bool bDirectionalSource, int& nSurfacesAdded);
+
 private:
 	IJED* m_pJed;
 	IJEDLevel* m_pJedLevel;
