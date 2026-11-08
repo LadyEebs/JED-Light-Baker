@@ -28,31 +28,30 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 			continue;
 
 		const float3 lightDir = aLights[nLightIndex].position.xyz - vertexData.vertex;
-		const float ndotl = dot(lightDir, vertexData.normal);
-		if (ndotl <= 0.0f)
+		const float dist2 = dot(lightDir, lightDir);
+		const float rangeSqr = aLights[nLightIndex].range * aLights[nLightIndex].range;
+		if (dist2 <= 1e-6f || dist2 >= rangeSqr)
 			continue;
 
-		const float rangeSqr = aLights[nLightIndex].range * aLights[nLightIndex].range;
-		const float dist2 = dot(lightDir, lightDir);
-		if (dist2 >= rangeSqr)
-			continue;
-			
 		const float dist = sqrt(dist2);
 		const float3 lightVec = lightDir / dist;
-
+		const float ndotl = saturate(dot(lightVec, vertexData.normal));
+		if (ndotl <= 0.0f)
+			continue;
+			
 		SRayPayload payload = (SRayPayload)0;
-		payload.attenuation = float4(ndotl, ndotl, ndotl, ndotl);
+		payload.attenuation = float4(1, 1, 1, 1);
 		if (!(aLights[nLightIndex].nFlags & ELight_NotBlocked))
 		{		
 			if (nLightSectorIndex != vertexData.nSectorIndex)
 			{
 				bool bRayHit = TraceRay(payload, vertexData.nSectorIndex, vertexData.vertex + lightDir * kRayBias, aLights[nLightIndex].position.xyz);
-				if (bRayHit)
+				if (bRayHit && payload.nHitSurfaceIndex >= 0 && (aSurfaces[payload.nHitSurfaceIndex].nFlags & EGpuSurface_IsVisible))
 					continue;
 			}
 		}
 
-		float4 color = aLights[nLightIndex].color * payload.attenuation;
+		float4 color = aLights[nLightIndex].color * payload.attenuation * ndotl;
 
 		if (g_levelInfo.nBakeFlags & ELightBake_PhysicalFalloff) // new hotness hybrid with inverse square falloff
 		{

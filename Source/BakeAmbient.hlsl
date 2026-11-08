@@ -32,7 +32,6 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 			continue;
 
 		const float3 lightDir = aLights[nLightIndex].position.xyz - vertexData.vertex;
-		const float ndotl = dot(lightDir, vertexData.normal);
 
 		const float rangeSqr = aLights[nLightIndex].range * aLights[nLightIndex].range;
 		const float dist2 = dot(lightDir, lightDir);
@@ -40,7 +39,6 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 			continue;
 			
 		const float dist = sqrt(dist2);
-		const float3 lightVec = lightDir / dist;
 
 		SRayPayload payload = (SRayPayload) 0;
 		payload.attenuation = float4(1, 1, 1, 1);
@@ -49,7 +47,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 			if (nLightSectorIndex != vertexData.nSectorIndex)
 			{
 				bool bRayHit = TraceRay(payload, vertexData.nSectorIndex, vertexData.vertex + lightDir * kRayBias, aLights[nLightIndex].position.xyz);
-				if (bRayHit)
+				if (bRayHit && payload.nHitSurfaceIndex >= 0 && (aSurfaces[payload.nHitSurfaceIndex].nFlags & EGpuSurface_IsVisible))
 					continue;
 			}
 		}

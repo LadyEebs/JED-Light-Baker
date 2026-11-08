@@ -43,10 +43,11 @@ static const int kMaxRecursion = 256; // should be more than enough?
 // Ray payload, filled on hit
 struct SRayPayload
 {
-	float4 attenuation;
-	float4 reflection;
+	float4 attenuation; // remaining transmission through crossed surfaces
+	float4 reflection; // accumulated diffuse bounce / caustic approximation
+	float4 emissive; // accumulated emission from crossed surfaces
 	float3 hitPos;
-	int    nHitSurfaceIndex;
+	int nHitSurfaceIndex; // final surface only, -1 when the ray escapes or hits nothing
 };
 
 // CPU mirrored structs
@@ -354,55 +355,65 @@ bool TraceSurfaces(int nSectorIndex, float3 start, float3 end, inout float3 hitP
 
 bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 end)
 {
-	int nRecurseLevel  = 0;
-	int nCurrentSector = nSectorIndex;
-	int nPreviousSector = -1;
-
+	payload.attenuation = float4(1, 1, 1, 1);
+	payload.reflection = float4(0, 0, 0, 0);
+	payload.emissive = float4(0, 0, 0, 0);
+	payload.hitPos = end;
 	payload.nHitSurfaceIndex = -1;
-	payload.hitPos = start;
-	payload.attenuation = float4(1,1,1,1);
+
+	const float3 rayDelta = end - start;
+	const float rayLengthSqr = dot(rayDelta, rayDelta);
+	if (rayLengthSqr <= 1e-12)
+		return false;
+
+	const float3 rayDirection = rayDelta * rsqrt(rayLengthSqr);
+	int nCurrentSector = nSectorIndex;
 
 	[loop]
-	while (nCurrentSector >= 0 && nCurrentSector != nPreviousSector && nRecurseLevel < kMaxRecursion)
+	for (int nRecurseLevel = 0; nRecurseLevel < kMaxRecursion; ++nRecurseLevel)
 	{
-		float3 hitPos = start;
-		int nHitSurfaceIndex = -1;
-		const bool bRayHit = TraceSurfaces(nCurrentSector, start, end, hitPos, nHitSurfaceIndex);
-		
-		// didn't hit anything
-		if (nHitSurfaceIndex < 0)
+		if (nCurrentSector < 0 || nCurrentSector >= g_levelInfo.nTotalSectors)
 			return false;
 
-		// we hit something
-		payload.nHitSurfaceIndex = nHitSurfaceIndex;
-		payload.hitPos = hitPos;
-		
-		// move to next sector (if available)
-		nPreviousSector = nCurrentSector;
-		nCurrentSector = aSurfaces[nHitSurfaceIndex].nAdjoinSector;
-		if (nCurrentSector >= 0)
+		float3 hitPos = start;
+		int nHitSurfaceIndex = -1;
+		if (!TraceSurfaces(nCurrentSector, start, end, hitPos, nHitSurfaceIndex))
+			return false;
+
+		const SSurface surface = aSurfaces[nHitSurfaceIndex];
+		const int nAdjoinSector = surface.nAdjoinSector;
+
+		// a surface with no adjoin is a solid hit
+		// the lighting is evaluated by the calling bake pass using the remaining attenuation
+		if (nAdjoinSector < 0)
 		{
-			// add transparent contributions
-			uint nSurfaceFlags = aSurfaces[nHitSurfaceIndex].nFlags;
-			if (nSurfaceFlags & EGpuSurface_IsVisible)
-			{
-				float4 albedo = aSurfaces[nHitSurfaceIndex].albedo;
-                float4 emissive = aSurfaces[nHitSurfaceIndex].emissive;
-				if (nSurfaceFlags & EGpuSurface_IsTranslucent)
-                {
-                    albedo *= kSurfaceAlpha;
-                    emissive *= kSurfaceAlpha;
-                }
-                
-				const float4 surfaceLight = InterpolateSurfaceLight(nHitSurfaceIndex, hitPos);
-                payload.reflection += (albedo * surfaceLight + emissive) * payload.attenuation;
-
-				if (nSurfaceFlags & EGpuSurface_IsTranslucent)
-					payload.attenuation *= albedo + (1.0 - kSurfaceAlpha);
-			}
-			++nRecurseLevel;
+			payload.hitPos = hitPos;
+			payload.nHitSurfaceIndex = nHitSurfaceIndex;
+			return true;
 		}
-	}
 
-	return payload.nHitSurfaceIndex >= 0;
+		const uint nSurfaceFlags = surface.nFlags;
+		if (nSurfaceFlags & EGpuSurface_IsVisible)
+		{
+			const bool bTranslucent = (nSurfaceFlags & EGpuSurface_IsTranslucent) != 0;
+			const float surfaceAlpha = bTranslucent ? kSurfaceAlpha : 1.0;
+			const float4 surfaceWeight = payload.attenuation * surfaceAlpha;
+			const float4 surfaceLight = InterpolateSurfaceLight(nHitSurfaceIndex, hitPos);
+
+			// weight local surface terms by the throughput that arrived at this surface
+			payload.reflection += surface.albedo * surfaceLight * surfaceWeight;
+			payload.emissive += surface.emissive * surfaceWeight;
+
+			if (bTranslucent)
+				payload.attenuation *= surface.albedo * surfaceAlpha + (1.0 - surfaceAlpha);
+		}
+
+		// continue just beyond the portal plane in the same ray direction
+		start = hitPos - rayDirection * kRayBias;
+		nCurrentSector = nAdjoinSector;
+	}
+		
+	// if we reach here it's because we don't have a surface hit/we exhausted the traversal
+	// the accumulators can still be valid in this case so return true to indicate a valid payload	
+	return true;
 }

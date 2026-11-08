@@ -25,10 +25,13 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 		const float3 rayTarget = kSkyDistance * rayDir + vertexData.vertex;
 
 		SRayPayload payload = (SRayPayload)0;
-		payload.attenuation = float4(1,1,1,1);
-
 		bool bRayHit = TraceRay(payload, vertexData.nSectorIndex, vertexData.vertex + rayDir * kRayBias, rayTarget);
-		if(bRayHit)
+		
+		// emission on crossed surfaces is independent of a later hit
+		if (g_levelInfo.nBakeFlags & ELightBake_Emissive)
+			localAcc += payload.emissive;
+
+		if (bRayHit && payload.nHitSurfaceIndex >= 0)
 		{
 			float4 color = float4(0,0,0,0);
 			uint hitFlags = aSurfaces[payload.nHitSurfaceIndex].nFlags;

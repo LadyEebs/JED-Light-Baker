@@ -25,16 +25,18 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 		const float3 rayTarget = kSkyDistance * rayDir + vertexData.vertex;
 
 		SRayPayload payload = (SRayPayload)0;
-		payload.attenuation = float4(1,1,1,1);
-
 		const bool bRayHit = TraceRay(payload, vertexData.nSectorIndex, vertexData.vertex + rayDir * kRayBias, rayTarget);
-		if (bRayHit && (aSurfaces[payload.nHitSurfaceIndex].nFlags & EGpuSurface_IsVisible))
+	
+		// crossed-adjoin contributions are valid even if the ray later escapes
+		float4 rayLight = payload.reflection;
+			
+		if (bRayHit && payload.nHitSurfaceIndex >= 0 && (aSurfaces[payload.nHitSurfaceIndex].nFlags & EGpuSurface_IsVisible))
 		{
 			const float4 surfaceLight = InterpolateSurfaceLight(payload.nHitSurfaceIndex, payload.hitPos);
-		
-			float4 color = aSurfaces[payload.nHitSurfaceIndex].albedo * surfaceLight;
-			localAcc += color * payload.attenuation + payload.reflection;
+			rayLight += aSurfaces[payload.nHitSurfaceIndex].albedo * surfaceLight * payload.attenuation;
 		}
+
+		localAcc += rayLight;
 	}
 
 	// write the result to shared memory
