@@ -51,6 +51,8 @@ enum EAdjoinFlags
 enum EFaceFlags
 {
 	EFace_Translucent = 0x2,
+
+	EFace_ForceEmissive = 0x40000000,
 };
 
 // Engine/editor surface flags
