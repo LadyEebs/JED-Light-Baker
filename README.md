@@ -44,6 +44,16 @@ Set flag 0x40 (shadow cleaving flag) to enable "shadow casting" on a light.
 This is a special flag that marks lights that should be used to cleave shadows, allowing finer control of what needs shadows and preventing unnecessary calculations.
 Cleaving is only performed if the option is enabled in the baker. Use wisely, as this is destructive to the level geometry and potentially expensive to calculate.
 
+# Special Flags
+Certain face and surface flags play a role in lighting.
+
+## Force Emissive (Face Flag 0x40000000)
+Light baker specific flag, forces the surface to act as emissive regardless if it's fullbright.
+
+## Cog Linked (Surface Flag 0x2)
+This is a stock sith engine flag (set by the engine), used to determine which surfaces can send messages to cogs. If a surface is linked to a cog, the light baker will not cleave it to preserve game logic/cog links.
+The baker flags all linked surfaces as cog linked before baking. This has no effect on the game as it flags them on startup as well.
+
 # Features
 - Directional sun light
 - Point lights, both in the original JED style and a new more physically motivated style
