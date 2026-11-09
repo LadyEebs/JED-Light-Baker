@@ -895,7 +895,7 @@ void CLightBakerDlg::BuildGeometry()
 						emissiveLightLevel = int(std::min(std::max((float)surface.extralight, 0.0f), 1.0f) * 63.0f);
 
 					// if we are forced to be emissive, then use fullbright
-					if (surface.surfflags & EFace_ForceEmissive)
+					if (surface.faceflags & EFace_ForceEmissive)
 						emissiveLightLevel = -1;
 
 					uint32_t nFillColor = LoadMaterialFillColor(surface.material, pColormap);
