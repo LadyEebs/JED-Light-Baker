@@ -405,9 +405,7 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 			// weight local surface terms by the throughput that arrived at this surface
 			payload.reflection += surface.albedo * surfaceLight * surfaceWeight;
 			payload.emissive += surface.emissive * surfaceWeight;
-
-			if (bTranslucent)
-				payload.attenuation *= surface.albedo * surfaceAlpha + (1.0 - surfaceAlpha);
+			payload.attenuation *= surface.albedo * surfaceAlpha + (1.0 - surfaceAlpha);
 		}
 
 		// continue just beyond the portal plane in the same ray direction
