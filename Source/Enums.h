@@ -28,6 +28,7 @@ enum EGpuSurfaceFlags
 	EGpuSurface_IsCeilingSky = 0x2,
 	EGpuSurface_IsVisible = 0x4,
 	EGpuSurface_IsTranslucent = 0x8,
+	EGpuSurface_BlocksLight = 0x10,
 
 	EGpuSurface_IsSky = EGpuSurface_IsHorizonSky | EGpuSurface_IsCeilingSky
 };

@@ -19,6 +19,7 @@ static const uint EGpuSurface_IsHorizonSky  = 0x1;
 static const uint EGpuSurface_IsCeilingSky  = 0x2;
 static const uint EGpuSurface_IsVisible     = 0x4;
 static const uint EGpuSurface_IsTranslucent = 0x8;
+static const uint EGpuSurface_BlocksLight   = 0x10;
 static const uint EGpuSurface_IsSky = EGpuSurface_IsHorizonSky | EGpuSurface_IsCeilingSky;
 
 // must match ELightFlags
@@ -395,6 +396,13 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 		}
 
 		const uint nSurfaceFlags = surface.nFlags;
+		if (nSurfaceFlags & EGpuSurface_BlocksLight)
+		{
+			payload.hitPos = hitPos;
+			payload.nHitSurfaceIndex = nHitSurfaceIndex;
+			return true;
+		}
+				
 		if (nSurfaceFlags & EGpuSurface_IsVisible)
 		{
 			const bool bTranslucent = (nSurfaceFlags & EGpuSurface_IsTranslucent) != 0;

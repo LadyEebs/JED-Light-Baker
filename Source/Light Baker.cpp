@@ -938,6 +938,8 @@ void CLightBakerDlg::BuildGeometry()
 					pSurface->nFlags |= EGpuSurface_IsCeilingSky;
 				if (surface.faceflags & EFace_Translucent)
 					pSurface->nFlags |= EGpuSurface_IsTranslucent;
+				if ((surface.adjoinflags & EAdjoin_BlocksLight) || nAdjoinSector < 0)
+					pSurface->nFlags |= EGpuSurface_BlocksLight;
 
 				for (int nVertexIndex = 0; nVertexIndex < nNumVertices; ++nVertexIndex)
 				{

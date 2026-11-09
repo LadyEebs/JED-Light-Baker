@@ -30,7 +30,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 		// crossed-adjoin contributions are valid even if the ray later escapes
 		float4 rayLight = payload.reflection;
 			
-		if (bRayHit && payload.nHitSurfaceIndex >= 0 && (aSurfaces[payload.nHitSurfaceIndex].nFlags & EGpuSurface_IsVisible))
+		if (bRayHit && payload.nHitSurfaceIndex >= 0 && (aSurfaces[payload.nHitSurfaceIndex].nFlags & EGpuSurface_BlocksLight))
 		{
 			const float4 surfaceLight = InterpolateSurfaceLight(payload.nHitSurfaceIndex, payload.hitPos);
 			rayLight += aSurfaces[payload.nHitSurfaceIndex].albedo * surfaceLight * payload.attenuation;
