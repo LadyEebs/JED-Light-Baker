@@ -40,6 +40,8 @@ static const float kRayBias = -1e-4;
 // maximum number of adjoins to cross for a given ray (puts an upper bound on recursions for safety)
 static const int kMaxRecursion = 256; // should be more than enough?
 
+static const float kPi = 3.14159265358979323846;
+
 // Ray payload, filled on hit
 struct SRayPayload
 {
@@ -198,7 +200,7 @@ float3 GenRay(int N, int M)
 	float u = (float)N / (float)M;
 
 	u = lerp(0.0001, 1.0, u);
-	const float phi = v * 2.0f * 3.141592f;
+	const float phi = v * 2.0f * kPi;
 	const float cosTheta = sqrt(1.0f - u);
 	const float sinTheta = sqrt(1.0f - cosTheta * cosTheta);
 	return float3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);

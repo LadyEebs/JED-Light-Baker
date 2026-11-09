@@ -72,7 +72,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 	// only thread 0 writes final result for this vertex
 	if(groupThreadID.x == 0)
 	{
-		float4 result = g_sharedAcc[0] / (float)g_levelInfo.nSkyEmissiveRays;
+		float4 result = (g_sharedAcc[0] / (float) g_levelInfo.nSkyEmissiveRays) * kPi;
 		float4 prevResult = aVertexAccumulation[vertexData.nVertexIndex];
 		aVertexAccumulation[vertexData.nVertexIndex] = prevResult + result;
 	}
