@@ -1,7 +1,10 @@
 #pragma once
 
 #include "Enums.h"
+#include "float2.h"
 #include "float3.h"
+
+class CVBuffer;
 
 // Minimal colormap support (for reading basic color and light table)
 struct SColormapHeader
@@ -69,6 +72,26 @@ struct SMaterialRecordHeaderExt
 	uint32_t nHeight = 0;
 	uint32_t nTransparentColor = 0;
 	uint32_t nTextureIndex = 0;
+};
+
+struct SMaterialTextureHeader
+{
+	uint32_t nWidth;
+	uint32_t nHeight;
+	uint32_t nAlphaEn;
+	uint32_t nUnk0C;
+	uint32_t nUnk10;
+	uint32_t nNumMipmaps;
+};
+
+// We only load the last cel of the last mipmap
+struct SMaterial
+{
+	SColorFormat format;
+	SMaterialRecordHeader header;
+	std::shared_ptr<CVBuffer> texture;
+	uint32_t nFillColor = 0;
+	uint32_t nMipmap = 0;
 };
 
 // Spatial vertex for normal smoothing

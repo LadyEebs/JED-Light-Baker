@@ -18,13 +18,15 @@ CGpuBuffer::~CGpuBuffer()
 	Release();
 }
 
-bool CGpuBuffer::Create(ID3D11Device* pDevice, ID3D11DeviceContext* pDeviceContext, int numElements, int stride, DXGI_FORMAT format, int writeable, int readable, D3D11_RESOURCE_MISC_FLAG miscFlags)
+bool CGpuBuffer::Create(ID3D11Device* pDevice, ID3D11DeviceContext* pDeviceContext, uint32_t numElements, int stride, DXGI_FORMAT format, int writeable, int readable, D3D11_RESOURCE_MISC_FLAG miscFlags)
 {
 	m_pDevice = pDevice;
 	m_pDeviceContext = pDeviceContext;
 	m_pBuffer = nullptr;
 	m_pShaderView = nullptr;
 	m_pUnorderedView = nullptr;
+
+	m_nNumElements = numElements;
 
 	memset(&mapped, 0, sizeof(mapped));
 
@@ -103,6 +105,9 @@ void CGpuBuffer::Release()
 
 void* CGpuBuffer::Map(D3D11_MAP mapping)
 {
+	if (!m_pBuffer)
+		return nullptr;
+
 	m_pDeviceContext->Map(m_pBuffer, 0, mapping, 0, &mapped);
 	return mapped.pData;
 }
@@ -111,7 +116,7 @@ void CGpuBuffer::Unmap()
 {
 	if (mapped.pData)
 		m_pDeviceContext->Unmap(m_pBuffer, 0);
-	mapped.pData = 0;
+	mapped.pData = nullptr;
 }
 
 void CGpuBuffer::ClearUAV()

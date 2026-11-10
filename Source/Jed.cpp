@@ -59,6 +59,14 @@ namespace Jed
 		return ReadVector(vertex);
 	}
 
+	std::optional<float2> QuerySurfaceUV(IJEDLevel* pJedLevel, int nSectorIndex, int nSurfaceIndex, int nVertexIndex)
+	{
+		float2 uv;
+		if (FAILED(pJedLevel->SurfaceGetVertexUV(nSectorIndex, nSurfaceIndex, nVertexIndex, &uv.x, &uv.y)))
+			return std::nullopt;
+		return uv;
+	}
+
 	bool IsSectorValid(IJEDLevel* pJedLevel, int nSectorIndex)
 	{
 		return pJedLevel && nSectorIndex >= 0 && nSectorIndex < pJedLevel->NSectors();

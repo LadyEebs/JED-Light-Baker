@@ -697,6 +697,8 @@ bool CLightBakerDlg::LoadEmbeddedShader(UINT resourceID, const void** data, DWOR
 
 void CLightBakerDlg::AllocateBuffers()
 {
+	m_vram.Create(m_pDeviceD3D, m_pDeviceContextD3D);
+
 	m_selectionBitmaskBuffer.Create(m_pDeviceD3D, m_pDeviceContextD3D, (m_nNumSectors + 31) / 32, sizeof(uint32_t), DXGI_FORMAT_R32_UINT, 0, 1, (D3D11_RESOURCE_MISC_FLAG)0);
 	m_layerBitmaskBuffer    .Create(m_pDeviceD3D, m_pDeviceContextD3D, (m_nNumLayers + 31) / 32, sizeof(uint32_t), DXGI_FORMAT_R32_UINT, 0, 1, (D3D11_RESOURCE_MISC_FLAG)0);
 	m_sectorBuffer          .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nNumSectors,             sizeof(SSector), DXGI_FORMAT_UNKNOWN, 0, 1, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
@@ -716,6 +718,7 @@ void CLightBakerDlg::AllocateBuffers()
 
 void CLightBakerDlg::FreeBuffers()
 {
+	m_vram.Release();
 	m_selectionBitmaskBuffer.Release();
 	m_layerBitmaskBuffer.Release();
 	m_sectorBuffer.Release();
@@ -884,46 +887,72 @@ void CLightBakerDlg::BuildGeometry()
 				pSurface->nFirstVertex = nVertexOffset;
 				pSurface->nNumVertices = nNumVertices;
 
-				float3 albedo = { 0.5f,0.5f,0.5f };
-				float3 emissive = { 0,0,0 };
-				if (pColormap)
+				pSurface->texInfo.emissiveLightLevel = 0.0f;
+
+				// use the light level so we can gracefully go back to 0 and still use regular emissives
+				if (m_nBakeFlags & ELightBake_ExtraLightEmissive)
+					pSurface->texInfo.emissiveLightLevel = (float)surface.extralight;
+
+				if (surface.faceflags & EFace_ForceEmissive)
+					pSurface->texInfo.emissiveLightLevel = -1.0f;
+				
+				SMaterial* pMaterial = LoadMaterial(surface.material, pColormap);
+				if (pMaterial)
 				{
-					int emissiveLightLevel = 0;
+					pSurface->texInfo.offsetStride = pMaterial->texture->GetSurfaceHandle();
 
-					// use the light level so we can gracefully go back to 0 and still use regular emissives
-					if (m_nBakeFlags & ELightBake_ExtraLightEmissive)
-						emissiveLightLevel = int(std::min(std::max((float)surface.extralight, 0.0f), 1.0f) * 63.0f);
-
-					// if we are forced to be emissive, then use fullbright
-					if (surface.faceflags & EFace_ForceEmissive)
-						emissiveLightLevel = -1;
-
-					uint32_t nFillColor = LoadMaterialFillColor(surface.material, pColormap);
-					albedo = pColormap->GetColor(nFillColor, -1);
-					emissive = pColormap->GetColor(nFillColor, emissiveLightLevel);
-					if (m_nBakeFlags & ELightBake_GammaCorrect)
-					{
-						albedo = ToLinear(albedo);
-						emissive = ToLinear(emissive);
-					}
-
-					// allow the extra light to increase the intensity
-					if (m_nBakeFlags & ELightBake_ExtraLightEmissive)
-					{
-						emissive.x = std::max(emissive.x, (float)surface.extralight * emissive.x);
-						emissive.y = std::max(emissive.y, (float)surface.extralight * emissive.y);
-						emissive.z = std::max(emissive.z, (float)surface.extralight * emissive.z);
-					}
+					float mipScale = 1.0f / (float)(1 << pMaterial->nMipmap);
+					pSurface->texInfo.texRowShift = pMaterial->texture->GetWidthBitCount() - pMaterial->nMipmap;
+					pSurface->texInfo.uWrap = ((pMaterial->texture->GetWidth() - 1) >> (pMaterial->nMipmap & 31)) << 16;
+					pSurface->texInfo.vWrap = ((pMaterial->texture->GetHeight() - 1) >> (pMaterial->nMipmap & 31)) << (pSurface->texInfo.texRowShift & 31);
 				}
-				pSurface->albedo.x = albedo.x;
-				pSurface->albedo.y = albedo.y;
-				pSurface->albedo.z = albedo.z;
-				pSurface->albedo.w = (albedo.x + albedo.y + albedo.z) / 3.0f;
+				else
+				{
+					pSurface->texInfo.texRowShift = 0;
+					pSurface->texInfo.uWrap = 0;
+					pSurface->texInfo.vWrap = 0;
+				}
 
-				pSurface->emissive.x = emissive.x;
-				pSurface->emissive.y = emissive.y;
-				pSurface->emissive.z = emissive.z;
-				pSurface->emissive.w = (emissive.x + emissive.y + emissive.z) / 3.0f;
+				//float3 albedo = { 0.5f,0.5f,0.5f };
+				//float3 emissive = { 0,0,0 };
+				//if (pColormap)
+				//{
+				//	int emissiveLightLevel = 0;
+				//
+				//	// use the light level so we can gracefully go back to 0 and still use regular emissives
+				//	if (m_nBakeFlags & ELightBake_ExtraLightEmissive)
+				//		emissiveLightLevel = int(std::min(std::max((float)surface.extralight, 0.0f), 1.0f) * 63.0f);
+				//
+				//	// if we are forced to be emissive, then use fullbright
+				//	if (surface.faceflags & EFace_ForceEmissive)
+				//		emissiveLightLevel = -1;
+				//
+				//	uint32_t nFillColor = LoadMaterialFillColor(surface.material, pColormap);
+				//	albedo = pColormap->GetColor(nFillColor, -1);
+				//	emissive = pColormap->GetColor(nFillColor, emissiveLightLevel);
+				//	if (m_nBakeFlags & ELightBake_GammaCorrect)
+				//	{
+				//		albedo = ToLinear(albedo);
+				//		emissive = ToLinear(emissive);
+				//	}
+				//
+				//	// allow the extra light to increase the intensity
+				//	if (m_nBakeFlags & ELightBake_ExtraLightEmissive)
+				//	{
+				//		emissive.x = std::max(emissive.x, (float)surface.extralight * emissive.x);
+				//		emissive.y = std::max(emissive.y, (float)surface.extralight * emissive.y);
+				//		emissive.z = std::max(emissive.z, (float)surface.extralight * emissive.z);
+				//	}
+				//}
+				//pSurface->albedo.x = albedo.x;
+				//pSurface->albedo.y = albedo.y;
+				//pSurface->albedo.z = albedo.z;
+				//pSurface->albedo.w = (albedo.x + albedo.y + albedo.z) / 3.0f;
+				//
+				//pSurface->emissive.x = emissive.x;
+				//pSurface->emissive.y = emissive.y;
+				//pSurface->emissive.z = emissive.z;
+				//pSurface->emissive.w = (emissive.x + emissive.y + emissive.z) / 3.0f;
 
 				pSurface->normal.x = normal.x;
 				pSurface->normal.y = normal.y;
@@ -959,6 +988,19 @@ void CLightBakerDlg::BuildGeometry()
 					pVertex->nSurfaceIndex = nDstIndex;
 					pVertex->nLocalSurfaceIndex = nSurfaceIndex;
 					pVertex->nLocalVertexIndex = nVertexIndex;
+
+					std::optional<float2> uvOpt = Jed::QuerySurfaceUV(m_pJed->GetLevel(), nSectorIndex, nSurfaceIndex, nVertexIndex);
+					if (uvOpt.has_value())
+					{
+						float2 uv = uvOpt.value();
+						pVertex->uv.x = uv.x;
+						pVertex->uv.y = uv.y;
+					}
+					else
+					{
+						pVertex->uv.x = 0.0f;
+						pVertex->uv.y = 0.0f;
+					}
 
 					int4* pNormal = &normals[nVertexOffset++];
 					pNormal->x = (int)(normal.x * 1024.0);
@@ -1408,21 +1450,21 @@ SColormap* CLightBakerDlg::LoadColormap(const wchar_t* sFileName)
 	return &colormap;
 }
 
-uint32_t CLightBakerDlg::LoadMaterialFillColor(const wchar_t* sFileName, const SColormap* pColormap)
+SMaterial* CLightBakerDlg::LoadMaterial(const wchar_t* sFileName, const SColormap* pColormap)
 {
 	if (!sFileName || sFileName[0] == '\0')
-		return 0;
+		return nullptr;
 
-	auto it = m_materialColorCache.find(sFileName);
+	auto it = m_materialColorCache.find((char*)sFileName);
 	if (it != m_materialColorCache.end())
-		return it->second;
+		return &it->second;
 
 	int nFileHandle = m_pJed->OpenGameFile((char*)sFileName);
 	if (nFileHandle < 0)
 	{
 		// the file wasn't found, to avoid console spam and slowdowns, insert a blank value
-		m_materialColorCache.emplace(sFileName, 0);
-		return 0;
+		m_materialColorCache.emplace((char*)sFileName, SMaterial{});
+		return nullptr;
 	}
 
 	SMaterialFileHeader materialHeader;
@@ -1430,25 +1472,25 @@ uint32_t CLightBakerDlg::LoadMaterialFillColor(const wchar_t* sFileName, const S
 	{
 		Jed::PrintMessage(m_pJed, msg_error, "Failed to read file '%ls'.", sFileName);
 		m_pJed->CloseFile(nFileHandle);
-		return 0;
+		return nullptr;
 	}
 
 	if (memcmp(materialHeader.magic, "MAT ", 4u))
 	{
 		Jed::PrintMessage(m_pJed, msg_error, "Bad material header in file '%ls'.", sFileName);
 		m_pJed->CloseFile(nFileHandle);
-		return 0;
+		return nullptr;
 	}
 
-	if (materialHeader.nVersion != 0x32)
+	if (materialHeader.nVersion != '2')
 	{
 		Jed::PrintMessage(m_pJed, msg_error, "Unsupported material version for '%ls'.", sFileName);
 		m_pJed->CloseFile(nFileHandle);
-		return 0;
+		return nullptr;
 	}
 
-	// read the last header (emissive signs and such start at broken, we want the cel with illumination)
-	SMaterialRecordHeader recordHeader;
+	// read the records
+	SMaterialRecordHeader recordHeader; // track the last one since several animated materials (e.g, broken lights start on the broken frame)
 	for (uint32_t i = 0; i < materialHeader.nRecordCount; ++i)
 	{
 		if (m_pJed->ReadFile(nFileHandle, &recordHeader, sizeof(SMaterialRecordHeader)) != sizeof(SMaterialRecordHeader))
@@ -1457,6 +1499,7 @@ uint32_t CLightBakerDlg::LoadMaterialFillColor(const wchar_t* sFileName, const S
 			m_pJed->CloseFile(nFileHandle);
 			return 0;
 		}
+
 		if (recordHeader.nTextureType & EMaterialRecordType_Texture)
 		{
 			SMaterialRecordHeaderExt ext;
@@ -1464,17 +1507,84 @@ uint32_t CLightBakerDlg::LoadMaterialFillColor(const wchar_t* sFileName, const S
 			{
 				Jed::PrintMessage(m_pJed, msg_error, "Failed to read material texture header from '%ls'.", sFileName);
 				m_pJed->CloseFile(nFileHandle);
-				return 0;
+				return nullptr;
 			}
-
-			// TODO: load the texture data to the GPU for reading in the shaders
 		}
 	}
-	m_materialColorCache.emplace(sFileName, recordHeader.nFillColor);
 
+	uint32_t nBytesPerPixel = materialHeader.colorFormat.nBitsPerPixel / 8;
+
+	// read the texture data
+	SMaterialTextureHeader textureHeader; // track the last texture
+	SSurfaceFormat surfaceFormat;
+	surfaceFormat.format = materialHeader.colorFormat;
+
+	uint32_t nMipmap = 0;
+
+	std::vector<uint8_t> textureData;
+	for (uint32_t nTextureIdx = 0; nTextureIdx < materialHeader.nTextureCount; ++nTextureIdx)
+	{
+		if (m_pJed->ReadFile(nFileHandle, &textureHeader, sizeof(SMaterialTextureHeader)) != sizeof(SMaterialTextureHeader))
+		{
+			Jed::PrintMessage(m_pJed, msg_error, "Failed to read material texture header from '%ls'.", sFileName);
+			m_pJed->CloseFile(nFileHandle);
+			return 0;
+		}
+		
+		// read mipmaps
+		uint32_t nWidth = textureHeader.nWidth;
+		uint32_t nHeight = textureHeader.nHeight;
+		for (nMipmap = 0; nMipmap < std::min(textureHeader.nNumMipmaps, 4u); ++nMipmap)
+		{
+			surfaceFormat.nWidth = nWidth;
+			surfaceFormat.nHeight = nHeight;
+			surfaceFormat.nTextureSizeInBytes = nHeight * nWidth * nBytesPerPixel;
+			surfaceFormat.nWidthInBytes = nWidth * nBytesPerPixel;
+			surfaceFormat.nWidthInPixels = nWidth;
+
+			// textureData acts like a scratch to dump the mipmap data into, we only need the last mipmap for the final texture
+			textureData.clear();
+			textureData.resize(surfaceFormat.nTextureSizeInBytes);
+			if (m_pJed->ReadFile(nFileHandle, textureData.data(), textureData.size()) != textureData.size())
+			{
+				Jed::PrintMessage(m_pJed, msg_error, "Failed to read material texture data from '%ls'.", sFileName);
+				m_pJed->CloseFile(nFileHandle);
+				return nullptr;
+			}
+			nWidth >>= 1;
+			nHeight >>= 1;
+		}		
+	}
+
+
+	std::shared_ptr<CVBuffer> texture = std::make_shared<CVBuffer>();
+	if (!textureData.empty())
+	{
+		if (texture->Create(&m_vram, &surfaceFormat))
+		{
+			void* pData = texture->Lock();
+			if(!pData)
+			{
+				Jed::PrintMessage(m_pJed, msg_error, "Failed to lock texture buffer for '%ls'.", sFileName);
+				m_pJed->CloseFile(nFileHandle);
+				return nullptr;
+			}
+
+			memcpy(pData, textureData.data(), textureData.size());
+
+			texture->Unlock();
+		}
+	}
 	m_pJed->CloseFile(nFileHandle);
 
-	return recordHeader.nFillColor;
+	auto [materialIt, inserted] = m_materialColorCache.emplace((char*)sFileName, SMaterial{materialHeader.colorFormat, recordHeader, texture, recordHeader.nFillColor, nMipmap});
+	if (!inserted)
+	{
+		Jed::PrintMessage(m_pJed, msg_error, "Failed to insert material '%ls' into cache.", sFileName);
+		return nullptr;
+	}
+	
+	return &materialIt->second;
 }
 
 bool CLightBakerDlg::CleavePrepass(bool bWarnUser)

@@ -6,7 +6,7 @@ public:
 	CGpuBuffer();
 	~CGpuBuffer();
 
-	bool Create(ID3D11Device* pDevice, ID3D11DeviceContext* pDeviceContext, int numElements, int stride, DXGI_FORMAT format, int writeable, int readable, D3D11_RESOURCE_MISC_FLAG miscFlags);
+	bool Create(ID3D11Device* pDevice, ID3D11DeviceContext* pDeviceContext, uint32_t numElements, int stride, DXGI_FORMAT format, int writeable, int readable, D3D11_RESOURCE_MISC_FLAG miscFlags);
 	void Release();
 
 	void* Map(D3D11_MAP mapping);
@@ -23,6 +23,7 @@ public:
 	ID3D11UnorderedAccessView* GetUAV() { return m_pUnorderedView; }
 
 	void ClearUAV();
+	uint32_t GetNumElements() const { return m_nNumElements; }
 
 private:
 	ID3D11Buffer*              m_pBuffer;
@@ -32,6 +33,7 @@ private:
 	ID3D11Device* m_pDevice;
 	ID3D11DeviceContext* m_pDeviceContext;
 	D3D11_MAPPED_SUBRESOURCE   mapped;
+	uint32_t m_nNumElements = 0;
 };
 
 template <typename T>

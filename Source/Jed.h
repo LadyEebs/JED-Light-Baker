@@ -2,6 +2,7 @@
 
 #include "IJed.h"
 #include "float3.h"
+#include "float2.h"
 #include "Geometry.h"
 
 namespace Jed
@@ -20,6 +21,7 @@ namespace Jed
 	bool   QuerySurfaceVisible(IJEDLevel* pJedLevel, int nSectorIndex, int nSurfaceIndex);
 	std::optional<float3> QuerySurfaceNormal(IJEDLevel* pJedLevel, int nSectorIndex, int nSurfaceIndex);
 	std::optional<float3> QuerySurfaceVertex(IJEDLevel* pJedLevel, int nSectorIndex, int nSurfaceIndex, int nVertexIndex);
+	std::optional<float2> QuerySurfaceUV(IJEDLevel* pJedLevel, int nSectorIndex, int nSurfaceIndex, int nVertexIndex);
 
 	std::optional<SPolygon> GetSurfacePolygon(IJEDLevel* pJedLevel, int nSectorIndex, int nSurfaceIndex);
 

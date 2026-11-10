@@ -1,3 +1,27 @@
+#ifndef BAKING_H
+#define BAKING_H
+
+#define LEVEL_INFO_REGISTER b0
+
+#define SECTOR_MASK_REGISTER t0
+#define LAYER_MASK_REGISTER t1
+
+#define SECTORS_REGISTER t2
+#define SURFACES_REGISTER t3
+#define VERTICES_REGISTER t4
+#define LIGHTS_REGISTER t5
+#define VERTEX_NORMALS_REGISTER t6
+#define VERTEX_COLORS_REGISTER t7
+#define DESCRIPTOR_REGISTER t8
+#define VRAM_REGISTER t9
+
+#define VERTEX_COLORS_WRITE_REGISTER u0
+#define VERTEX_ACCUMULATION_REGISTER u1
+
+#include "VRAM.hlsli"
+#include "Color.hlsli"
+#include "Descriptor.hlsli"
+
 // must match ELightBakeFlags
 static const uint ELightBake_Lights               =   0x1;
 static const uint ELightBake_Sun                  =   0x2;
@@ -63,15 +87,25 @@ struct SSector
 	float4 center;
 };
 
+struct SSurfaceTexInfo
+{
+	uint nOffset;
+	uint nStride;
+	uint uWrap, vWrap;
+	uint nTexRowShift;
+	float emissiveLightLevel;
+};
+
 struct SSurface
 {
-	float4 albedo;
-	float4 emissive;
+	//float4 albedo;
+	//float4 emissive;
 	float4 normal;
 	uint   nFirstVertex;
 	uint   nNumVertices;
 	int    nAdjoinSector;
 	uint   nFlags;
+	SSurfaceTexInfo texInfo;
 };
 
 struct SVertex
@@ -80,6 +114,8 @@ struct SVertex
 	uint   nSurfaceIndex;
 	uint2  nLocalData; // unused, for local tracking and writeback
 	float4 position;
+	float2 uv;
+	float2 padding;
 };
 
 struct SLight
@@ -112,7 +148,7 @@ struct SLevelInfo
 	int4 _padding2;
 };
 
-cbuffer CBLevelInfo : register( b0 )
+cbuffer CBLevelInfo : register(LEVEL_INFO_REGISTER)
 {
 	SLevelInfo g_levelInfo;
 };
@@ -129,17 +165,18 @@ struct SVertexData
 };
 
 // Resources
-Buffer<uint>               aSectorMasks   : register(t0);
-Buffer<uint>               aLayerMasks    : register(t1);
-StructuredBuffer<SSector>  aSectors       : register(t2);
-StructuredBuffer<SSurface> aSurfaces      : register(t3);
-StructuredBuffer<SVertex>  aVertices      : register(t4);
-StructuredBuffer<SLight>   aLights        : register(t5);
-StructuredBuffer<int4>     aVertexNormals : register(t6);
-StructuredBuffer<float4>   aVertexColors  : register(t7);
+Buffer<uint>               aSectorMasks   : register(SECTOR_MASK_REGISTER);
+Buffer<uint>               aLayerMasks    : register(LAYER_MASK_REGISTER);
+StructuredBuffer<SSector>  aSectors       : register(SECTORS_REGISTER);
+StructuredBuffer<SSurface> aSurfaces      : register(SURFACES_REGISTER);
+StructuredBuffer<SVertex>  aVertices      : register(VERTICES_REGISTER);
+StructuredBuffer<SLight>   aLights        : register(LIGHTS_REGISTER);
+StructuredBuffer<int4>     aVertexNormals : register(VERTEX_NORMALS_REGISTER);
+StructuredBuffer<float4>   aVertexColors  : register(VERTEX_COLORS_REGISTER);
 
-RWStructuredBuffer<float4> aVertexColorsWrite  : register(u0);
-RWStructuredBuffer<float4> aVertexAccumulation : register(u1);
+RWStructuredBuffer<float4> aVertexColorsWrite  : register(VERTEX_COLORS_WRITE_REGISTER);
+RWStructuredBuffer<float4> aVertexAccumulation : register(VERTEX_ACCUMULATION_REGISTER);
+
 
 // Test if a sector is in the sector bitmask
 bool IsSectorVisible(int nSectorIndex)
@@ -258,6 +295,115 @@ float4 InterpolateSurfaceLight(int nSurfaceIndex, float3 pos)
     }
 
     return totalWeight < 1e-5 ? float4(0,0,0,0) : vertexLight / totalWeight;
+}
+
+float2 InterpolateSurfaceUV(int nSurfaceIndex, float3 pos)
+{
+	const uint nFirstVertex = aSurfaces[nSurfaceIndex].nFirstVertex;
+	const uint nNumVertices = aSurfaces[nSurfaceIndex].nNumVertices;
+
+	float2 vertexUV = float2(0, 0);
+	float totalWeight = 0.0;
+
+    [loop]
+	for (uint nVertexIndex = 0; nVertexIndex < nNumVertices; ++nVertexIndex)
+	{
+        // Previous, current, next vertex indices
+		const uint nPrevIndex = (nVertexIndex + nNumVertices - 1) % nNumVertices;
+		const uint nCurrIndex = nVertexIndex;
+		const uint nNextIndex = (nVertexIndex + 1) % nNumVertices;
+
+		const float3 vPrev = aVertices[nFirstVertex + nPrevIndex].position.xyz;
+		const float3 vCurr = aVertices[nFirstVertex + nCurrIndex].position.xyz;
+		const float3 vNext = aVertices[nFirstVertex + nNextIndex].position.xyz;
+
+        // Vectors from pos to vertices
+		float3 wPrev = vPrev - pos;
+		float3 wCurr = vCurr - pos;
+		float3 wNext = vNext - pos;
+
+		const float lenPrev = length(wPrev) + 1e-5;
+		const float lenCurr = length(wCurr) + 1e-5;
+		const float lenNext = length(wNext) + 1e-5;
+
+		wPrev /= lenPrev;
+		wCurr /= lenCurr;
+		wNext /= lenNext;
+
+        // Compute tan(theta/2) for previous and next angles
+		const float sinThetaPrev = length(cross(wCurr, wPrev));
+		const float cosThetaPrev = dot(wCurr, wPrev);
+		const float tanHalfPrev = sinThetaPrev / (1.0 + cosThetaPrev + 1e-5);
+
+		const float sinThetaNext = length(cross(wNext, wCurr));
+		const float cosThetaNext = dot(wNext, wCurr);
+		const float tanHalfNext = sinThetaNext / (1.0 + cosThetaNext + 1e-5);
+
+        // Weight for this vertex
+		const float weight = (tanHalfPrev + tanHalfNext) / lenCurr;
+
+		vertexUV += aVertices[nFirstVertex + nCurrIndex].uv * weight;
+		totalWeight += weight;
+	}
+
+	return totalWeight < 1e-5 ? float2(0, 0) : vertexUV / totalWeight;
+}
+
+// Fetch the color of the surface at a uv coordinate
+float4 GetSurfaceColor(int nSurfaceIndex, float2 uv, bool bIsAlbedo)
+{
+	// texturing info
+	SSurfaceTexInfo texInfo = aSurfaces[nSurfaceIndex].texInfo;
+	
+	// read the descriptor
+	SDescriptor desc = aDescriptors[texInfo.nOffset];
+	
+	// compute the wrapped uv coordinates in fixed point
+	int x_fixed = (int) (65536.0 * uv.x) + 0x8000;
+	int y_fixed = (int) (65536.0 * uv.y) + 0x8000;
+	
+	// coordinate wrapping
+	int x_wrapped = (x_fixed & texInfo.uWrap) >> 16;
+	int y_wrapped = (y_fixed >> (16 - texInfo.nTexRowShift)) & texInfo.vWrap;
+	
+	// sample the texture
+	// todo: pass the palette index and light level
+	uint4 color = SampleTextureRGBA(desc, int2(x_wrapped, y_wrapped), bIsAlbedo); //, colormapIndex, lightLevel);
+	float4 colorf = float4(color) / 255.0; // normalize to [0,1] range
+	
+	// apply gamma correction if needed
+	if (g_levelInfo.nBakeFlags & ELightBake_GammaCorrect)
+		colorf.rgb = GammaToLinear(colorf.rgb);
+	
+	// allow the extra light to increase the intensity
+	if (!bIsAlbedo && (g_levelInfo.nBakeFlags & ELightBake_ExtraLightEmissive))
+		colorf.rgb *= max(texInfo.emissiveLightLevel, 1.0f);
+	
+	// todo: for 16 bit RGBA, we should use the alpha as the emissive mask
+	
+	return colorf;
+}
+
+float4 GetSurfaceAlbedo(int nSurfaceIndex, float2 uv)
+{
+	return GetSurfaceColor(nSurfaceIndex, uv, true);
+}
+
+float4 GetSurfaceAlbedo(int nSurfaceIndex, float3 posOnSurface)
+{
+	float2 uv = InterpolateSurfaceUV(nSurfaceIndex, posOnSurface);
+	return GetSurfaceAlbedo(nSurfaceIndex, uv);
+}
+
+float4 GetSurfaceEmissive(int nSurfaceIndex, float2 uv)
+{
+	return GetSurfaceColor(nSurfaceIndex, uv, false);
+}
+
+float4 GetSurfaceEmissive(int nSurfaceIndex, float3 posOnSurface)
+{
+	float2 uv = InterpolateSurfaceUV(nSurfaceIndex, posOnSurface);
+	return GetSurfaceEmissive(nSurfaceIndex, uv);
 }
 
 // Test if a point is within a surfaces edges
@@ -410,10 +556,17 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 			const float4 surfaceWeight = payload.attenuation * surfaceAlpha;
 			const float4 surfaceLight = InterpolateSurfaceLight(nHitSurfaceIndex, hitPos);
 
+			const float2 uv = InterpolateSurfaceUV(payload.nHitSurfaceIndex, payload.hitPos);
+			float4 albedo = GetSurfaceAlbedo(payload.nHitSurfaceIndex, uv); // aSurfaces[payload.nHitSurfaceIndex].albedo;
+			float4 emissive = GetSurfaceEmissive(payload.nHitSurfaceIndex, uv); // aSurfaces[payload.nHitSurfaceIndex].emissive;
+			
+			albedo.a = GetLuminance(albedo.rgb);
+			emissive.a = GetLuminance(emissive.rgb);
+			
 			// weight local surface terms by the throughput that arrived at this surface
-			payload.reflection += surface.albedo * surfaceLight * surfaceWeight;
-			payload.emissive += surface.emissive * surfaceWeight;
-			payload.attenuation *= surface.albedo * surfaceAlpha + (1.0 - surfaceAlpha);
+			payload.reflection += albedo * surfaceLight * surfaceWeight;
+			payload.emissive += emissive * surfaceWeight;
+			payload.attenuation *= albedo * surfaceAlpha + (1.0 - surfaceAlpha);
 		}
 
 		// continue just beyond the portal plane in the same ray direction
@@ -425,3 +578,5 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 	// the accumulators can still be valid in this case so return true to indicate a valid payload	
 	return true;
 }
+
+#endif

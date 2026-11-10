@@ -6,6 +6,7 @@
 
 #include "GpuBuffer.h"
 #include "Types.h"
+#include "VRAM.h"
 #include "HWTypes.h"
 
 // TODO: this is a monolithic class atm, can probably break it up
@@ -76,7 +77,7 @@ private:
 	SColormap* LoadColormap(const wchar_t* sFileName);
 
 	// attempt to load and cache a material, if the filename was already loaded, the cached result is returned
-	uint32_t   LoadMaterialFillColor(const wchar_t* sFileName, const SColormap* pColormap);
+	SMaterial* LoadMaterial(const wchar_t* sFileName, const SColormap* pColormap);
 
 	// load an embedded resource (usually shader blobs)
 	bool LoadEmbeddedShader(UINT resourceID, const void** data, DWORD* size) const;
@@ -153,6 +154,8 @@ private:
 
 	ID3D11Buffer* m_pLevelInfoConstants;
 
+	CVRAM m_vram;
+
 	// State
 	int m_nSunLightIndex, m_nSkyLightIndex, m_nAnchorLightIndex;
 	uint32_t m_nBakeFlags;
@@ -164,7 +167,7 @@ private:
 
 	// Resource caching
 	std::unordered_map<std::wstring, SColormap> m_colormapCache;
-	std::unordered_map<std::wstring, uint32_t>  m_materialColorCache;
+	std::unordered_map<std::string, SMaterial>  m_materialColorCache;
 };
 
 template<typename T>

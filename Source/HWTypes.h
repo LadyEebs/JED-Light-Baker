@@ -12,15 +12,24 @@ struct SSector
 	float4   center;
 };
 
+struct SSurfaceTexInfo
+{
+	uint64_t offsetStride;
+	uint32_t uWrap, vWrap;
+	uint32_t texRowShift;
+	float emissiveLightLevel;
+};
+
 struct SSurface
 {
-	float4    albedo;
-	float4    emissive;
+	//float4    albedo;
+	//float4    emissive;
 	float4    normal;
 	uint32_t  nFirstVertex;
 	uint32_t  nNumVertices;
 	int32_t   nAdjoinSector;
 	uint32_t  nFlags;
+	SSurfaceTexInfo texInfo;
 };
 
 struct SVertex
@@ -30,6 +39,8 @@ struct SVertex
 	uint32_t  nLocalSurfaceIndex;
 	uint32_t  nLocalVertexIndex;
 	float4    position;
+	float2    uv;
+	float2    padding1;
 };
 
 struct SNormalVertexPair

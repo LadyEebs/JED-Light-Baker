@@ -40,17 +40,23 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 				// always start with the sky light color because it also includes the user sky intensity
 				color = aLights[g_levelInfo.nSkyLightIndex].color;
 				if (g_levelInfo.nBakeFlags & ELightBake_SkyColorFromMaterial)
-					color *= aSurfaces[payload.nHitSurfaceIndex].albedo;
+				{
+					const float4 albedo = GetSurfaceAlbedo(payload.nHitSurfaceIndex, payload.hitPos.xyz); // aSurfaces[payload.nHitSurfaceIndex].albedo;
+					color *= float4(albedo.rgb, GetLuminance(albedo.rgb));
+					//color *= aSurfaces[payload.nHitSurfaceIndex].albedo;
+				}
                 
                 // for ceiling skies, attenuate by angle to the ceiling plane (which is always pointing straight down)
-                if (hitFlags & EGpuSurface_IsCeilingSky)
-                {
-                    payload.attenuation *= saturate(rayDir.z * 100.0);
-                }
+				if (hitFlags & EGpuSurface_IsCeilingSky)
+				{
+					payload.attenuation *= saturate(rayDir.z * 100.0);
+				}
 			}
 			else if((g_levelInfo.nBakeFlags & ELightBake_Emissive) && (hitFlags & EGpuSurface_IsVisible))
 			{
-				color = aSurfaces[payload.nHitSurfaceIndex].emissive;
+				const float4 emissive = GetSurfaceEmissive(payload.nHitSurfaceIndex, payload.hitPos); // aSurfaces[payload.nHitSurfaceIndex].emissive;
+				color = float4(emissive.rgb, GetLuminance(emissive.rgb));
+				//color = aSurfaces[payload.nHitSurfaceIndex].emissive;
 			}
 
 			localAcc += color * payload.attenuation;
