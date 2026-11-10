@@ -61,7 +61,7 @@ static constexpr int kDefRaysPerVertexIdx = 2;
 float3 SColormap::GetColor(uint32_t nIndex, int nLightLevel) const
 {
 	if (nLightLevel >= 0)
-		nIndex = nLightLevels[nLightLevel * 64 + nIndex];
+		nIndex = nLightLevels[nLightLevel * 256 + nIndex];
 
 	float3 fillColor;
 	fillColor.x = (float)colors[nIndex].r / 255.0f;
