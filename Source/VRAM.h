@@ -107,6 +107,7 @@ public:
 	uint64_t CreateSurface(SSurfaceFormat* pTexFormat);
 	void ReleaseSurface(uint64_t handle);
 	void* GetSurfacePointer(uint64_t handle);
+	void FreeSurfaces();
 
 	ID3D11ShaderResourceView* GetSRV();
 	ID3D11ShaderResourceView* GetDescriptorSRV();

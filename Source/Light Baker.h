@@ -144,6 +144,8 @@ private:
 	CGpuBuffer m_accumulationBuffer;
 	CGpuBuffer m_normalNeighborOffsetsBuffer;
 	CGpuBuffer m_normalNeighborIndicesBuffer;
+	CGpuBuffer m_colormapBuffer;
+	CGpuBuffer m_lightLevelBuffer;
 
 	ID3D11ComputeShader* m_pBakeSunShader;
 	ID3D11ComputeShader* m_pBakeDirectShader;

@@ -13,9 +13,27 @@ struct SDescriptor
 
 StructuredBuffer<SDescriptor> aDescriptors : register(DESCRIPTOR_REGISTER);
 
+Buffer<uint> aColormap : register(COLORMAP_REGISTER);
+Buffer<uint> aLightLevels : register(LIGHTLEVELS_REGISTER);
+
+uint4 DecodeColormapPixel(uint pixel)
+{
+	uint4 result = uint4(0, 0, 0, 0);
+	result.r = ExtractBits(pixel, 0, 8);
+	result.g = ExtractBits(pixel, 8, 8);
+	result.b = ExtractBits(pixel, 16, 8);
+	result.a = 255;
+	return result;
+}
+
 uint GetDescriptorBits(SDescriptor desc)
 {
 	return ExtractBits(desc.format.x, 2, 6);
+}
+
+uint GetDescriptorColorMode(SDescriptor desc)
+{
+	return ExtractBits(desc.format.x, 0, 2);
 }
 
 uint2 GetTextureCoordinate(SDescriptor desc, float2 uv)
@@ -26,10 +44,28 @@ uint2 GetTextureCoordinate(SDescriptor desc, float2 uv)
 	return coord % resolution;
 }
 
-uint4 SampleTextureRGBA(SDescriptor desc, float2 uv, bool bIsAlbedo)
+uint4 SampleTextureRGBA(int hDescriptorHandle, float2 uv, bool bIsAlbedo)
 {
-	uint2 coord = GetTextureCoordinate(desc, uv);
+	// if the handle is 0 it's invalid, return black
+	if (hDescriptorHandle == 0)
+	{
+		return uint4(0, 0, 0, 0);
+	}
 	
+	// if the handle is negative it's a solid fill color
+	if (hDescriptorHandle < 0)
+	{
+		uint pixel = abs(hDescriptorHandle);
+		if (!bIsAlbedo)
+		{
+			pixel = aLightLevels[pixel];
+		}
+		return DecodeColormapPixel(pixel);
+	}
+	
+	// otherwise it's a texture
+	SDescriptor desc = aDescriptors[hDescriptorHandle];	
+	uint2 coord = GetTextureCoordinate(desc, uv);	
 	SColorFormat format = UnpackColorFormat(desc.format);
 	
 	// check the color mode and load either paletted or rgba
@@ -37,8 +73,13 @@ uint4 SampleTextureRGBA(SDescriptor desc, float2 uv, bool bIsAlbedo)
 	if (colorMode == 0) // paletted
 	{
 		uint pixel = Load8(coord.xy, int2(desc.offset, desc.rowStride));
-		// todo: read colormap
-		return uint4(pixel, pixel, pixel, pixel);
+		if (!bIsAlbedo)
+		{
+			pixel = aLightLevels[pixel]; // light level 0
+		}
+		
+		uint4 result = DecodeColormapPixel(aColormap[pixel]);
+		return result;
 	}
 
 	// rgba mode

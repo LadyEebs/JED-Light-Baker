@@ -14,6 +14,8 @@
 #define VERTEX_COLORS_REGISTER t7
 #define DESCRIPTOR_REGISTER t8
 #define VRAM_REGISTER t9
+#define COLORMAP_REGISTER t10
+#define LIGHTLEVELS_REGISTER t11
 
 #define VERTEX_COLORS_WRITE_REGISTER u0
 #define VERTEX_ACCUMULATION_REGISTER u1
@@ -349,19 +351,9 @@ float2 InterpolateSurfaceUV(int nSurfaceIndex, float3 pos)
 // Fetch the color of the surface at a uv coordinate
 float4 GetSurfaceColor(int nSurfaceIndex, float2 uv, bool bIsAlbedo)
 {
-	// texturing info
 	SSurfaceTexInfo texInfo = aSurfaces[nSurfaceIndex].texInfo;
-	
-	if (texInfo.hDescriptorHandle < 0)
-		return float4(0, 0, 0, 1);
-
-	// read the descriptor
-	SDescriptor desc = aDescriptors[texInfo.hDescriptorHandle];
-	
-	// sample the texture
-	// todo: pass the palette index and light level
-	uint4 color = SampleTextureRGBA(desc, uv, bIsAlbedo); //, colormapIndex, lightLevel);
-	float4 colorf = float4(color) / 255.0; // normalize to [0,1] range
+	uint4 color = SampleTextureRGBA(texInfo.hDescriptorHandle, uv, bIsAlbedo);
+	float4 colorf = (float4)color / 255.0; // normalize to [0,1] range
 	
 	// apply gamma correction if needed
 	if (g_levelInfo.nBakeFlags & ELightBake_GammaCorrect)

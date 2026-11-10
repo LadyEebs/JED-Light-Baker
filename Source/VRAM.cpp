@@ -19,6 +19,9 @@ void CVRAM::Create(ID3D11Device* pDevice, ID3D11DeviceContext* pContext)
 
 	m_vram.Create(pDevice, pContext, kVRAMSize * 1024 * 1024, sizeof(uint8_t), DXGI_FORMAT_R8_UINT, 0, 0, (D3D11_RESOURCE_MISC_FLAG)0);
 	m_descriptors.Create(pDevice, pContext, 256, sizeof(SVRAMDescriptor), DXGI_FORMAT_UNKNOWN, 1, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
+	
+	//m_vram.ClearUAV();
+	//m_descriptors.ClearUAV();
 
 	m_vramBlocks = new SVRAMBlock;
 	m_vramBlocks->nOffset = 0;
@@ -43,20 +46,29 @@ void CVRAM::Release()
 	m_descriptors.Release();
 	m_descriptorData.clear();
 	m_freeDescriptors = std::stack<int>();
+	m_pVRAMData = nullptr;
+}
+
+void CVRAM::FreeSurfaces()
+{
+	SVRAMBlock* curr = m_vramBlocks;
+	while (curr)
+	{
+		SVRAMBlock* pNext = curr->pNext;
+		delete curr;
+		curr = pNext;
+	}
+	m_vramBlocks = new SVRAMBlock;
+	m_vramBlocks->nOffset = 0;
+	m_vramBlocks->nSize = kVRAMSize * 1024 * 1024;
+	m_vramBlocks->pNext = nullptr;
+	m_descriptorData.clear();
+	//m_descriptors.ClearUAV();
+	m_freeDescriptors = std::stack<int>();
 }
 
 void CVRAM::UpdateDescriptor(uint32_t index, SVRAMDescriptor* pData)
 {
-	UINT structSize = sizeof(SVRAMDescriptor);
-
-	D3D11_BOX box;
-	memset(&box, 0, sizeof(D3D11_BOX));
-	box.left = index * structSize;
-	box.right = box.left + structSize;
-	box.top = 0;
-	box.bottom = 1;
-	box.front = 0;
-	box.back = 1;
 
 	if (index < m_descriptorData.size())
 	{
@@ -72,9 +84,22 @@ void CVRAM::UpdateDescriptor(uint32_t index, SVRAMDescriptor* pData)
 	{
 		m_descriptors.Release();
 		m_descriptors.Create(m_pDevice, m_pDeviceContext, m_descriptorData.size() * 2, sizeof(SVRAMDescriptor), DXGI_FORMAT_UNKNOWN, 1, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
+	
+		// reupload the entire buffer
+		m_pDeviceContext->UpdateSubresource(m_descriptors.GetBuffer(), 0, nullptr, pData, 0, 0);
 	}
-
-	m_pDeviceContext->UpdateSubresource(m_descriptors.GetBuffer(), 0, &box, pData, 0, 0);
+	else
+	{
+		D3D11_BOX box;
+		memset(&box, 0, sizeof(D3D11_BOX));
+		box.left = index * sizeof(SVRAMDescriptor);
+		box.right = box.left + sizeof(SVRAMDescriptor);
+		box.top = 0;
+		box.bottom = 1;
+		box.front = 0;
+		box.back = 1;
+		m_pDeviceContext->UpdateSubresource(m_descriptors.GetBuffer(), 0, &box, pData, 0, 0);
+	}
 }
 
 int CVRAM::CreateDescriptor(SVRAMDescriptor* pDescriptor)

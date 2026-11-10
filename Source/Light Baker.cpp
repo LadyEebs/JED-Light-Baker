@@ -61,7 +61,7 @@ static constexpr int kDefRaysPerVertexIdx = 2;
 float3 SColormap::GetColor(uint32_t nIndex, int nLightLevel) const
 {
 	if (nLightLevel >= 0)
-		nIndex = nLightLevels[nLightLevel * 256 + nIndex];
+		nIndex = nLightLevels[nLightLevel * 64 + nIndex];
 
 	float3 fillColor;
 	fillColor.x = (float)colors[nIndex].r / 255.0f;
@@ -247,6 +247,8 @@ CLightBakerDlg::~CLightBakerDlg()
 		m_pLevelInfoConstants->Release();
 	m_pLevelInfoConstants = nullptr;
 
+	m_vram.Release();
+
 	if (m_pDeviceContextD3D)
 		m_pDeviceContextD3D->Release();
 	m_pDeviceContextD3D = nullptr;
@@ -313,6 +315,8 @@ bool CLightBakerDlg::CreateDeviceD3D()
 		Jed::PrintMessage(m_pJed, msg_error, "Failed to created constant buffer.");
 		return false;
 	}
+
+	m_vram.Create(m_pDeviceD3D, m_pDeviceContextD3D);
 
 	return true;
 }
@@ -392,6 +396,8 @@ void CLightBakerDlg::OnShowWindow(BOOL bShow, UINT nStatus)
 		// clear resource caches on close so we can reload mising mats on next open
 		m_materialColorCache.clear();
 		m_colormapCache.clear();
+		m_vram.FreeSurfaces();
+
 		//SaveSettings(GetOrCreateSettingsCog());
 	}
 }
@@ -501,6 +507,7 @@ afx_msg void CLightBakerDlg::OnBnClickedClearCachesButton()
 {
 	m_materialColorCache.clear();
 	m_colormapCache.clear();
+	m_vram.FreeSurfaces();
 	Jed::PrintMessage(m_pJed, msg_info, "Cleared material and colormap caches.");
 }
 
@@ -701,7 +708,27 @@ bool CLightBakerDlg::PreloadMasterCMP()
 		Jed::PrintMessage(m_pJed, msg_error, "Failed to get level header for colormap preload.");
 		return false;
 	}
-	return LoadColormap(levelHeader.mastercmp) != nullptr;
+	SColormap* pColormap = LoadColormap(levelHeader.mastercmp);
+	if (!pColormap)
+	{
+		Jed::PrintMessage(m_pJed, msg_error, "Failed to load master colormap '%s'.", levelHeader.mastercmp);
+		return false;
+	}
+
+	CGpuBufferMapping<uint32_t> colormap(&m_colormapBuffer, D3D11_MAP_WRITE);
+	for (int nIndex = 0; nIndex < 256; ++nIndex)
+	{
+		const auto& color = pColormap->colors[nIndex];
+		colormap[nIndex] = (uint32_t(color.b) << 16) | (uint32_t(color.g) << 8) | uint32_t(color.r);
+	}
+
+	CGpuBufferMapping<uint32_t> lightLevel(&m_lightLevelBuffer, D3D11_MAP_WRITE);
+	for (int nLevelIndex = 0; nLevelIndex < 256 * 64; ++nLevelIndex)
+	{
+		lightLevel[nLevelIndex] = pColormap->nLightLevels[nLevelIndex];
+	}
+
+	return true;
 }
 
 bool CLightBakerDlg::LoadEmbeddedShader(UINT resourceID, const void** data, DWORD* size) const
@@ -721,18 +748,18 @@ bool CLightBakerDlg::LoadEmbeddedShader(UINT resourceID, const void** data, DWOR
 
 void CLightBakerDlg::AllocateBuffers()
 {
-	m_vram.Create(m_pDeviceD3D, m_pDeviceContextD3D);
-
 	m_selectionBitmaskBuffer.Create(m_pDeviceD3D, m_pDeviceContextD3D, (m_nNumSectors + 31) / 32, sizeof(uint32_t), DXGI_FORMAT_R32_UINT, 0, 1, (D3D11_RESOURCE_MISC_FLAG)0);
-	m_layerBitmaskBuffer    .Create(m_pDeviceD3D, m_pDeviceContextD3D, (m_nNumLayers + 31) / 32, sizeof(uint32_t), DXGI_FORMAT_R32_UINT, 0, 1, (D3D11_RESOURCE_MISC_FLAG)0);
-	m_sectorBuffer          .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nNumSectors,             sizeof(SSector), DXGI_FORMAT_UNKNOWN, 0, 1, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
-	m_surfaceBuffer         .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalSurfaces,          sizeof(SSurface), DXGI_FORMAT_UNKNOWN, 0, 1, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
-	m_vertexBuffer          .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(SVertex), DXGI_FORMAT_UNKNOWN, 0, 1, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
-	m_normalBuffer          .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(float4), DXGI_FORMAT_UNKNOWN, 1, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
-	m_lightBuffer           .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nNumLights,              sizeof(SLight), DXGI_FORMAT_UNKNOWN, 0, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
-	m_colorLastResultBuffer .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(float4), DXGI_FORMAT_UNKNOWN, 1, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
-	m_colorCurrResultBuffer .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(float4), DXGI_FORMAT_UNKNOWN, 1, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
-	m_accumulationBuffer    .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(float4), DXGI_FORMAT_UNKNOWN, 1, 1, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
+	m_layerBitmaskBuffer    .Create(m_pDeviceD3D, m_pDeviceContextD3D, (m_nNumLayers + 31) / 32,  sizeof(uint32_t), DXGI_FORMAT_R32_UINT, 0, 1, (D3D11_RESOURCE_MISC_FLAG)0);
+	m_sectorBuffer          .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nNumSectors,             sizeof(SSector),  DXGI_FORMAT_UNKNOWN,  0, 1, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
+	m_surfaceBuffer         .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalSurfaces,          sizeof(SSurface), DXGI_FORMAT_UNKNOWN,  0, 1, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
+	m_vertexBuffer          .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(SVertex),  DXGI_FORMAT_UNKNOWN,  0, 1, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
+	m_normalBuffer          .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(float4),   DXGI_FORMAT_UNKNOWN,  1, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
+	m_lightBuffer           .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nNumLights,              sizeof(SLight),   DXGI_FORMAT_UNKNOWN,  0, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
+	m_colorLastResultBuffer .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(float4),   DXGI_FORMAT_UNKNOWN,  1, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
+	m_colorCurrResultBuffer .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(float4),   DXGI_FORMAT_UNKNOWN,  1, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
+	m_accumulationBuffer    .Create(m_pDeviceD3D, m_pDeviceContextD3D, m_nTotalVertices,          sizeof(float4),   DXGI_FORMAT_UNKNOWN,  1, 1, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
+	m_colormapBuffer        .Create(m_pDeviceD3D, m_pDeviceContextD3D, 256,                       sizeof(uint32_t), DXGI_FORMAT_R32_UINT, 0, 0, (D3D11_RESOURCE_MISC_FLAG)0);
+	m_lightLevelBuffer      .Create(m_pDeviceD3D, m_pDeviceContextD3D, 256 * 64,                  sizeof(uint32_t), DXGI_FORMAT_R32_UINT, 0, 0, (D3D11_RESOURCE_MISC_FLAG)0);
 
 	// clear the color buffers before we render anything to them
 	m_colorLastResultBuffer.ClearUAV();
@@ -742,10 +769,6 @@ void CLightBakerDlg::AllocateBuffers()
 
 void CLightBakerDlg::FreeBuffers()
 {
-	m_colormapCache.clear();
-	m_materialColorCache.clear();
-
-	m_vram.Release();
 	m_selectionBitmaskBuffer.Release();
 	m_layerBitmaskBuffer.Release();
 	m_sectorBuffer.Release();
@@ -758,6 +781,8 @@ void CLightBakerDlg::FreeBuffers()
 	m_accumulationBuffer.Release();
 	m_normalNeighborOffsetsBuffer.Release();
 	m_normalNeighborIndicesBuffer.Release();
+	m_colormapBuffer.Release();
+	m_lightLevelBuffer.Release();
 }
 
 void CLightBakerDlg::BuildSelectionBitmask()
@@ -937,32 +962,40 @@ bool CLightBakerDlg::BuildGeometry()
 
 				pSurface->texInfo.emissiveLightLevel = 0.0f;
 
-				// use the light level so we can gracefully go back to 0 and still use regular emissives
-				if (m_nBakeFlags & ELightBake_ExtraLightEmissive)
-					pSurface->texInfo.emissiveLightLevel = (float)surface.extralight;
-
-				if (surface.faceflags & EFace_ForceEmissive)
+				// if this is an 8 bit material (which has fullbright/emissive pixels) or a forced emissive surface then we want full emission
+				if (surface.faceflags & EFace_ForceEmissive || pMaterial && pMaterial->format.nColorMode == 0)
 					pSurface->texInfo.emissiveLightLevel = 1.0f;
-				
+
+				// apply extra light as a multipler if desired
+				if (m_nBakeFlags & ELightBake_ExtraLightEmissive)
+					pSurface->texInfo.emissiveLightLevel *= (float)surface.extralight;
+									
 				// invalid materials don't draw
-				if (!pMaterial || !pMaterial->texture || !pMaterial->nBaseWidth || !pMaterial->nBaseHeight)
+				if (!pMaterial)
 				{
 					memset(&pSurface->texInfo, 0, sizeof(pSurface->texInfo));
-					pSurface->texInfo.hDescriptorHandle = -1;
+					pSurface->texInfo.hDescriptorHandle = 0;
 				}
 				else
 				{
-					uint64_t nHandle = pMaterial->texture->GetSurfaceHandle();
-					if (nHandle == -1)
+					if (!pMaterial->texture) // no texture, use fill color
 					{
-						pSurface->texInfo.hDescriptorHandle = -1;
+						pSurface->texInfo.hDescriptorHandle = -(int)pMaterial->nFillColor;
 					}
 					else
 					{
-						uint32_t offset = (uint32_t)(nHandle & 0xFFFFFFFF);
-						uint32_t size = (uint32_t)(nHandle >> 32) & 0x3FFFFF;
-						int descriptor = (int)(nHandle >> 54);
-						pSurface->texInfo.hDescriptorHandle = descriptor;
+						uint64_t nHandle = pMaterial->texture->GetSurfaceHandle();
+						if (nHandle == -1)
+						{
+							pSurface->texInfo.hDescriptorHandle = 0;
+						}
+						else
+						{
+							uint32_t offset = (uint32_t)(nHandle & 0xFFFFFFFF);
+							uint32_t size = (uint32_t)(nHandle >> 32) & 0x3FFFFF;
+							int descriptor = (int)(nHandle >> 54);
+							pSurface->texInfo.hDescriptorHandle = descriptor;
+						}
 					}
 				}
 
@@ -1025,7 +1058,7 @@ bool CLightBakerDlg::BuildGeometry()
 
 				// if the material name was valid, but it's not found, then QuerySurfaceVisible will return true
 				// so remove the flag here if the material itself didn't load
-				if (!pMaterial || !pMaterial->texture || !pMaterial->nBaseWidth || !pMaterial->nBaseHeight)
+				if (!pMaterial)
 					pSurface->nFlags &= ~EGpuSurface_IsVisible;
 
 				const float invTextureWidth = pMaterial ? 1.0f / (float)pMaterial->nBaseWidth : 1.0f;
@@ -1259,6 +1292,8 @@ void CLightBakerDlg::DispatchBakePass(int nDispatchX, int nDispatchY, ID3D11Comp
 		pReadBuffer->GetSRV(),
 		m_vram.GetDescriptorSRV(),
 		m_vram.GetSRV(),
+		m_colormapBuffer.GetSRV(),
+		m_lightLevelBuffer.GetSRV()
 	};
 	
 	ID3D11UnorderedAccessView* apUnorderedResources[] =
@@ -1271,16 +1306,16 @@ void CLightBakerDlg::DispatchBakePass(int nDispatchX, int nDispatchY, ID3D11Comp
 
 	m_pDeviceContextD3D->CSSetShader(pShader, nullptr, 0);
 	m_pDeviceContextD3D->CSSetConstantBuffers(0, 1, apConstantBuffers);
-	m_pDeviceContextD3D->CSSetShaderResources(0, 10, apShaderResources);
+	m_pDeviceContextD3D->CSSetShaderResources(0, 12, apShaderResources);
 	m_pDeviceContextD3D->CSSetUnorderedAccessViews(0, 2, apUnorderedResources, 0);
 	m_pDeviceContextD3D->Dispatch(nDispatchX, nDispatchY, 1);
 
 	ID3D11Buffer* nullBuf[] = { nullptr };
-	ID3D11ShaderResourceView* nullSRV[] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
+	ID3D11ShaderResourceView* nullSRV[] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
 	ID3D11UnorderedAccessView* nullUAV[] = { nullptr, nullptr };
 
 	m_pDeviceContextD3D->CSSetConstantBuffers(0, 1, nullBuf);
-	m_pDeviceContextD3D->CSSetShaderResources(0, 10, nullSRV);
+	m_pDeviceContextD3D->CSSetShaderResources(0, 12, nullSRV);
 	m_pDeviceContextD3D->CSSetUnorderedAccessViews(0, 2, nullUAV, 0);
 	
 	m_pDeviceContextD3D->Flush();
@@ -1610,6 +1645,7 @@ SMaterial* CLightBakerDlg::LoadMaterial(const wchar_t* sFileName, const SColorma
 		const uint32_t nMipCount = std::min(textureHeader.nNumMipmaps, 4u);
 		if (!nMipCount || !nBaseWidth || !nBaseHeight)
 		{
+			Jed::PrintMessage(m_pJed, msg_error, "Invalid mipmap count or texture dimensions in '%ls'.", sFileName);
 			m_pJed->CloseFile(nFileHandle);
 			return nullptr;
 		}
@@ -1636,20 +1672,21 @@ SMaterial* CLightBakerDlg::LoadMaterial(const wchar_t* sFileName, const SColorma
 				m_pJed->CloseFile(nFileHandle);
 				return nullptr;
 			}
+			break;
+
 			nWidth >>= 1;
 			nHeight >>= 1;
 		}		
 	}
 
-
-	std::shared_ptr<CVBuffer> texture = std::make_shared<CVBuffer>();
+	std::shared_ptr<CVBuffer> texture;
 	if (!textureData.empty())
 	{
+		texture = std::make_shared<CVBuffer>();
+
 		if (!texture->Create(&m_vram, &surfaceFormat))
 		{
-			Jed::PrintMessage(m_pJed, msg_error,
-							  "Failed to create texture buffer for '%ls'.", sFileName);
-
+			Jed::PrintMessage(m_pJed, msg_error, "Failed to create texture buffer for '%ls'.", sFileName);
 			m_pJed->CloseFile(nFileHandle);
 			return nullptr;
 		}
