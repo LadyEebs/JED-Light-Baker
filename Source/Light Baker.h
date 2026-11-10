@@ -68,10 +68,10 @@ public:
 
 private:
 	// main entry point for baking process, everything below assumes flags etc are set
-	bool BakeLighting(uint32_t nInitBakeFlags);
+	bool		BakeLighting(uint32_t nInitBakeFlags);
 
 	// fetches the level header and preloads the master cmp if there is one
-	void       PreloadMasterCMP();
+	bool		PreloadMasterCMP();
 
 	// attempt to load and cache a colormap, if the filename was already loaded, the cached result is returned
 	SColormap* LoadColormap(const wchar_t* sFileName);
@@ -90,7 +90,7 @@ private:
 	void BuildSelectionBitmask();
 	void BuildLayerBitmask();
 	void BuildLights();
-	void BuildGeometry();
+	bool BuildGeometry();
 	bool BuildNormalAdjacency(std::vector<SSpatialVertex>& vertices, const std::vector<uint64_t>& adjoinEdges, std::vector<uint32_t>& offsets, std::vector<uint32_t>& indices);
 
 	// helpers for shaders and buffers

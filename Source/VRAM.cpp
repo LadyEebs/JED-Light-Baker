@@ -5,7 +5,7 @@
 
 #include "VRAM.h"
 
-static constexpr int VRAM_SIZE = 256; // needs to match VRAM_SIZE in VRAM.hlsli
+static constexpr int kVRAMSize = 128; // needs to match kVRAMSize in VRAM.hlsli
 
 static constexpr int BitWidth(uint32_t val) noexcept
 {
@@ -17,17 +17,19 @@ void CVRAM::Create(ID3D11Device* pDevice, ID3D11DeviceContext* pContext)
 	m_pDevice = pDevice;
 	m_pDeviceContext = pContext;
 
-	m_vram.Create(pDevice, pContext, VRAM_SIZE * 1024 * 1024, sizeof(uint8_t), DXGI_FORMAT_R8_UINT, 1, 0, (D3D11_RESOURCE_MISC_FLAG)0);
+	m_vram.Create(pDevice, pContext, kVRAMSize * 1024 * 1024, sizeof(uint8_t), DXGI_FORMAT_R8_UINT, 0, 0, (D3D11_RESOURCE_MISC_FLAG)0);
 	m_descriptors.Create(pDevice, pContext, 256, sizeof(SVRAMDescriptor), DXGI_FORMAT_UNKNOWN, 1, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
 
 	m_vramBlocks = new SVRAMBlock;
 	m_vramBlocks->nOffset = 0;
-	m_vramBlocks->nSize = VRAM_SIZE * 1024 * 1024;
+	m_vramBlocks->nSize = kVRAMSize * 1024 * 1024;
 	m_vramBlocks->pNext = nullptr;
 }
 
 void CVRAM::Release()
 {
+	Unlock();
+
 	SVRAMBlock* curr = m_vramBlocks;
 	while (curr)
 	{
@@ -98,9 +100,24 @@ void CVRAM::ReleaseDescriptor(int idx)
 	m_freeDescriptors.push(idx);
 }
 
-uint64_t CVRAM::CreateSurface(SSurfaceFormat* pTexFormat)
+bool CVRAM::Lock()
 {
-	uint32_t size = pTexFormat->nTextureSizeInBytes;
+	m_pVRAMData = m_vram.Map(D3D11_MAP_WRITE);
+	return m_pVRAMData != nullptr;
+}
+
+void CVRAM::Unlock()
+{
+	if (m_pVRAMData)
+	{
+		m_vram.Unmap();
+		m_pVRAMData = nullptr;
+	}
+}
+
+uint64_t CVRAM::CreateSurface(SSurfaceFormat* pSurfaceFormat)
+{
+	uint32_t size = pSurfaceFormat->nTextureSizeInBytes;
 
 	SVRAMBlock** curr = &m_vramBlocks;
 	while (*curr)
@@ -122,15 +139,10 @@ uint64_t CVRAM::CreateSurface(SSurfaceFormat* pTexFormat)
 				block->nSize -= size;
 			}
 
-			SVRAMDescriptor desc(&pTexFormat->format);
-			desc.nWidth = pTexFormat->nWidth;
-			desc.nHeight = pTexFormat->nHeight;
-			desc.nOffset = offset;
-			desc.nRowStride = pTexFormat->nWidthInBytes;
-			desc.nTotalSize = size;
-
+			SVRAMDescriptor desc(pSurfaceFormat, offset, size);
 			int descriptor = CreateDescriptor(&desc);
 
+			// todo: the descriptor is limited here to 10 bits and that's not enough
 			return ((uint64_t)(descriptor & 0x3FF) << 54) | ((uint64_t)(size & 0x3FFFFF) << 32) | ((uint64_t)offset & 0xFFFFFFFF);
 		}
 		curr = &block->pNext;
@@ -181,37 +193,25 @@ void CVRAM::ReleaseSurface(uint64_t handle)
 	}
 }
 
-void* CVRAM::LockSurface(uint64_t handle)
+void* CVRAM::GetSurfacePointer(uint64_t handle)
 {
-	if (!m_pDevice)
+	if (!m_pDevice || !m_pVRAMData || handle == -1)
 		return nullptr;
 
 	uint32_t offset = (uint32_t)(handle & 0xFFFFFFFF);
-	if (!m_vramMapCount || !m_pVRAMData)
-		m_pVRAMData = m_vram.Map(D3D11_MAP_WRITE);
-
-	if (!m_pVRAMData)
-		return nullptr;
-
-	++m_vramMapCount;
 	return (uint8_t*)m_pVRAMData + offset;
 }
 
-void CVRAM::UnlockSurface(uint64_t handle)
+ID3D11ShaderResourceView* CVRAM::GetSRV()
 {
-	if (!m_pDevice)
-		return;
-
-	if (m_vramMapCount == 0)
-		return;
-
-	--m_vramMapCount;
-	if (m_vramMapCount == 0)
-	{
-		m_vram.Unmap();
-		m_pVRAMData = nullptr;
-	}
+	return m_vram.GetSRV();
 }
+
+ID3D11ShaderResourceView* CVRAM::GetDescriptorSRV()
+{
+	return m_descriptors.GetSRV();
+}
+
 
 CVBuffer::CVBuffer(CVBuffer&& other) noexcept
 	: m_pVRAM(other.m_pVRAM)
@@ -295,7 +295,7 @@ void* CVBuffer::Lock()
 		return nullptr;
 
 	if (m_bIsLocked)
-		m_mappedData = m_pVRAM->LockSurface(m_hSurfaceHandle);
+		m_mappedData = m_pVRAM->GetSurfacePointer(m_hSurfaceHandle);
 
 	if (!m_mappedData)
 		return nullptr;
@@ -318,7 +318,6 @@ void CVBuffer::Unlock()
 	{
 		if (m_bIsLocked)
 		{
-			m_pVRAM->UnlockSurface(m_hSurfaceHandle);
 			m_mappedData = nullptr;
 		}
 	}

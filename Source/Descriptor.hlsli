@@ -18,10 +18,22 @@ uint GetDescriptorBits(SDescriptor desc)
 	return ExtractBits(desc.format.x, 2, 6);
 }
 
-uint4 SampleTextureRGBA(SDescriptor desc, int2 coord, bool bIsAlbedo)
+uint2 GetTextureCoordinate(SDescriptor desc, float2 uv)
 {
+	const uint2 resolution = max(desc.resolution, uint2(1, 1));
+	const float2 wrappedUV = frac(uv);
+	uint2 coord = (uint2)floor(wrappedUV * (float2)resolution + 0.5f);
+	return coord % resolution;
+}
+
+uint4 SampleTextureRGBA(SDescriptor desc, float2 uv, bool bIsAlbedo)
+{
+	uint2 coord = GetTextureCoordinate(desc, uv);
+	
+	SColorFormat format = UnpackColorFormat(desc.format);
+	
 	// check the color mode and load either paletted or rgba
-	uint colorMode = ExtractBits(desc.format.x, 0, 2);
+	uint colorMode = format.colorMode;
 	if (colorMode == 0) // paletted
 	{
 		uint pixel = Load8(coord.xy, int2(desc.offset, desc.rowStride));
@@ -30,17 +42,13 @@ uint4 SampleTextureRGBA(SDescriptor desc, int2 coord, bool bIsAlbedo)
 	}
 
 	// rgba mode
-	uint bpp = ExtractBits(desc.format.x, 2, 6);
-	
 	uint pixel = 0;
-	if (bpp == 16)
+	if (format.bpp == 16)
 		pixel = Load16(coord.xy, int2(desc.offset, desc.rowStride));
 	else
 		pixel = Load32(coord.xy, int2(desc.offset, desc.rowStride));
 		
 	// decode the pixel into rgba
-	SColorFormat format = UnpackColorFormat(desc.format);
-	
 	uint4 result = uint4(0, 0, 0, 0);
 	DecodeRGBA(pixel, format, result.r, result.g, result.b, result.a);
 	

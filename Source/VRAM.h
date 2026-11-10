@@ -56,20 +56,6 @@ struct SVRAMDescriptorFormat
 };
 static_assert(sizeof(SVRAMDescriptorFormat) == sizeof(uint64_t), "SVRAMDescriptorFormat must be 64 bits in size");
 
-// Texture descriptor, describes a texture living in the vram buffer
-struct SVRAMDescriptor
-{
-	SVRAMDescriptor(const SColorFormat* pFormat) : format(pFormat) {}
-
-	uint32_t              nWidth, nHeight;
-	uint32_t              nPadding0;
-	uint32_t              nTotalSize;
-	uint32_t              nOffset; // offset into vram
-	uint32_t              nRowStride;
-	SVRAMDescriptorFormat format;
-};
-static_assert(sizeof(SVRAMDescriptor) == sizeof(uint32_t) * 8, "SVRAMDescriptor must be 32 bytes in size");
-
 struct SSurfaceFormat
 {
 	int32_t nWidth;
@@ -79,6 +65,28 @@ struct SSurfaceFormat
 	uint32_t nWidthInPixels;
 	SColorFormat format;
 };
+
+// Texture descriptor, describes a texture living in the vram buffer
+struct SVRAMDescriptor
+{
+	SVRAMDescriptor(const SSurfaceFormat* pSurfaceFormat, uint32_t nOffset, uint32_t nSize)
+		: format(&pSurfaceFormat->format)
+		, nOffset(nOffset)
+		, nTotalSize(nSize)
+	{
+		nWidth = pSurfaceFormat->nWidth;
+		nHeight = pSurfaceFormat->nHeight;
+		nRowStride = pSurfaceFormat->nWidthInBytes;
+	}
+
+	uint32_t              nWidth = 0, nHeight = 0;
+	uint32_t              nPadding0 = 0;
+	uint32_t              nTotalSize = 0;
+	uint32_t              nOffset = 0; // offset into vram
+	uint32_t              nRowStride = 0;
+	SVRAMDescriptorFormat format;
+};
+static_assert(sizeof(SVRAMDescriptor) == sizeof(uint32_t) * 8, "SVRAMDescriptor must be 32 bytes in size");
 
 class CVRAM
 {
@@ -92,10 +100,16 @@ public:
 	int  CreateDescriptor(SVRAMDescriptor* pDescriptor);
 	void ReleaseDescriptor(int idx);
 
+	// Lock/unlock the entire VRAM buffer for CPU access
+	bool Lock();
+	void Unlock();
+
 	uint64_t CreateSurface(SSurfaceFormat* pTexFormat);
 	void ReleaseSurface(uint64_t handle);
-	void* LockSurface(uint64_t handle);
-	void UnlockSurface(uint64_t handle);
+	void* GetSurfacePointer(uint64_t handle);
+
+	ID3D11ShaderResourceView* GetSRV();
+	ID3D11ShaderResourceView* GetDescriptorSRV();
 
 private:
 	ID3D11Device* m_pDevice = nullptr;
@@ -103,9 +117,8 @@ private:
 
 	// VRAM allocation blocks and GPU storage
 	SVRAMBlock* m_vramBlocks = nullptr;
-	int         m_vramMapCount = 0; // vram map status flag, increments on every map, decrements on every unmap, only does map/unmap once
 	CGpuBuffer  m_vram;
-	void*       m_pVRAMData = nullptr; // pointer to mapped VRAM data for CPU access
+	void*       m_pVRAMData = nullptr; // pointer to mapped VRAM data for CPU access (nullptr unless Locked)
 
 	// Texture descriptor storage
 	CGpuBuffer  m_descriptors;

@@ -235,9 +235,9 @@ CLightBakerDlg::~CLightBakerDlg()
 		m_pBakeAmbientShader->Release();
 	m_pBakeAmbientShader = nullptr;
 
-	if (m_pBakeIndirectShader)
-		m_pBakeIndirectShader->Release();
-	m_pBakeIndirectShader = nullptr;
+	if (m_pBakeSkyEmissiveShader)
+		m_pBakeSkyEmissiveShader->Release();
+	m_pBakeSkyEmissiveShader = nullptr;
 
 	if (m_pGenNormalsShader)
 		m_pGenNormalsShader->Release();
@@ -568,7 +568,6 @@ bool CLightBakerDlg::BakeLighting(uint32_t nInitBakeFlags)
 	m_nBakeFlags |= m_bToneMap ? ELightBake_ToneMap : 0;
 	m_nBakeFlags |= m_bSkyColorFromMaterials ? ELightBake_SkyColorFromMaterial : 0;
 
-
 	if (FAILED(m_pJed->StartUndo(const_cast<char*>("Light Baker"))))
 		return false;
 
@@ -623,14 +622,35 @@ bool CLightBakerDlg::BakeLighting(uint32_t nInitBakeFlags)
 	}
 	Jed::PrintMessage(m_pJed, msg_info, "%u Vertices in Level queued for baking.", m_nTotalVertices);
 
-	// preload the master colormap up front
-	PreloadMasterCMP();
-
+	// Allocate the vram and baking buffers
 	AllocateBuffers();
+
+	// Lock vram for writing
+	if (!m_vram.Lock())
+	{
+		Jed::PrintMessage(m_pJed, msg_error, "Failed to lock virtual VRAM for writing.");
+		FreeBuffers();
+		return false;
+	}
+
+	// preload the master colormap
+	if (!PreloadMasterCMP())
+	{
+		FreeBuffers();
+		return false;
+	}
+
 	BuildSelectionBitmask();
 	BuildLayerBitmask();
 	BuildLights();
-	BuildGeometry();
+	if (!BuildGeometry())
+	{
+		FreeBuffers();
+		return false;
+	}
+
+	// Unlock vram for reading
+	m_vram.Unlock();
 
 	// remove flags if no sun/sky were found
 	if (m_nSunLightIndex < 0)
@@ -672,12 +692,16 @@ bool CLightBakerDlg::BakeLighting(uint32_t nInitBakeFlags)
 	return true;
 }
 
-void CLightBakerDlg::PreloadMasterCMP()
+bool CLightBakerDlg::PreloadMasterCMP()
 {
 	tlevelheader levelHeader;
 	memset(&levelHeader, 0, sizeof(tlevelheader));
-	m_pJed->GetLevel()->GetLevelHeader(&levelHeader, lh_all);
-	LoadColormap(levelHeader.mastercmp);
+	if (FAILED(m_pJed->GetLevel()->GetLevelHeader(&levelHeader, lh_all)))
+	{
+		Jed::PrintMessage(m_pJed, msg_error, "Failed to get level header for colormap preload.");
+		return false;
+	}
+	return LoadColormap(levelHeader.mastercmp) != nullptr;
 }
 
 bool CLightBakerDlg::LoadEmbeddedShader(UINT resourceID, const void** data, DWORD* size) const
@@ -718,6 +742,9 @@ void CLightBakerDlg::AllocateBuffers()
 
 void CLightBakerDlg::FreeBuffers()
 {
+	m_colormapCache.clear();
+	m_materialColorCache.clear();
+
 	m_vram.Release();
 	m_selectionBitmaskBuffer.Release();
 	m_layerBitmaskBuffer.Release();
@@ -809,7 +836,7 @@ void CLightBakerDlg::BuildLights()
 	}
 }
 
-void CLightBakerDlg::BuildGeometry()
+bool CLightBakerDlg::BuildGeometry()
 {
 	std::vector<SSpatialVertex> spatialVertices;
 	std::vector<uint64_t> adjoinEdges;
@@ -828,8 +855,10 @@ void CLightBakerDlg::BuildGeometry()
 		if (!sectors || !surfaces || !vertices || !normals)
 		{
 			Jed::PrintMessage(m_pJed, msg_error, "Failed to map geometry buffers for upload.");
-			return;
+			return false;
 		}
+
+		const uint32_t nExpectedVertices = (uint32_t)m_nTotalVertices;
 
 		uint32_t nSurfaceOffset = 0;
 		uint32_t nVertexOffset = 0;
@@ -839,7 +868,12 @@ void CLightBakerDlg::BuildGeometry()
 
 			tjedsectorrec sector;
 			memset(&sector, 0, sizeof(tjedsectorrec));
-			m_pJed->GetLevel()->GetSector(nSectorIndex, &sector, s_all);
+			if (FAILED(m_pJed->GetLevel()->GetSector(nSectorIndex, &sector, s_all)))
+			{
+				Jed::PrintMessage(m_pJed, msg_error, "Failed to read sector %d.", nSectorIndex);
+				return false;
+			}
+			
 			SColormap* pColormap = LoadColormap(sector.colormap);
 		
 			tjedbox box;
@@ -861,11 +895,20 @@ void CLightBakerDlg::BuildGeometry()
 				tjedsurfacerec surface;
 				memset(&surface, 0, sizeof(tjedsurfacerec));
 				if (FAILED(m_pJed->GetLevel()->GetSurface(nSectorIndex, nSurfaceIndex, &surface, sf_all)))
-					continue;
+				{
+					Jed::PrintMessage(m_pJed, msg_error, "Failed to read surface %d in sector %d.", nSurfaceIndex, nSectorIndex);
+					return false;
+				}
+
+				SMaterial* pMaterial = LoadMaterial(surface.material, pColormap);			
 
 				std::optional<float3> normalOpt = Jed::QuerySurfaceNormal(m_pJed->GetLevel(), nSectorIndex, nSurfaceIndex);
 				if (!normalOpt.has_value())
-					continue;
+				{
+					Jed::PrintMessage(m_pJed, msg_error, "Failed to query surface normal for sector %d, surface %d.", nSectorIndex, nSurfaceIndex);
+					return false;
+				}
+				
 				float3 normal = normalOpt.value();
 
 				const int nAdjoinSector = (surface.adjoinflags & EAdjoin_BlocksLight) ? -1 : surface.adjoinsc;
@@ -882,6 +925,11 @@ void CLightBakerDlg::BuildGeometry()
 				uint32_t nDstIndex = bHasAdjoin ? nAdjoinCursor++ : nSolidCursor--;
 			
 				const int nNumVertices = m_pJed->GetLevel()->SurfaceNVertices(nSectorIndex, nSurfaceIndex);
+				if (nNumVertices < 0 || nVertexOffset + (uint32_t)nNumVertices > nExpectedVertices)
+				{
+					Jed::PrintMessage(m_pJed, msg_error, "Invalid vertex count for sector %d, surface %d.", nSectorIndex, nSurfaceIndex);
+					return false;
+				}
 
 				SSurface* pSurface = &surfaces[nDstIndex];
 				pSurface->nFirstVertex = nVertexOffset;
@@ -894,23 +942,28 @@ void CLightBakerDlg::BuildGeometry()
 					pSurface->texInfo.emissiveLightLevel = (float)surface.extralight;
 
 				if (surface.faceflags & EFace_ForceEmissive)
-					pSurface->texInfo.emissiveLightLevel = -1.0f;
+					pSurface->texInfo.emissiveLightLevel = 1.0f;
 				
-				SMaterial* pMaterial = LoadMaterial(surface.material, pColormap);
-				if (pMaterial)
+				// invalid materials don't draw
+				if (!pMaterial || !pMaterial->texture || !pMaterial->nBaseWidth || !pMaterial->nBaseHeight)
 				{
-					pSurface->texInfo.offsetStride = pMaterial->texture->GetSurfaceHandle();
-
-					float mipScale = 1.0f / (float)(1 << pMaterial->nMipmap);
-					pSurface->texInfo.texRowShift = pMaterial->texture->GetWidthBitCount() - pMaterial->nMipmap;
-					pSurface->texInfo.uWrap = ((pMaterial->texture->GetWidth() - 1) >> (pMaterial->nMipmap & 31)) << 16;
-					pSurface->texInfo.vWrap = ((pMaterial->texture->GetHeight() - 1) >> (pMaterial->nMipmap & 31)) << (pSurface->texInfo.texRowShift & 31);
+					memset(&pSurface->texInfo, 0, sizeof(pSurface->texInfo));
+					pSurface->texInfo.hDescriptorHandle = -1;
 				}
 				else
 				{
-					pSurface->texInfo.texRowShift = 0;
-					pSurface->texInfo.uWrap = 0;
-					pSurface->texInfo.vWrap = 0;
+					uint64_t nHandle = pMaterial->texture->GetSurfaceHandle();
+					if (nHandle == -1)
+					{
+						pSurface->texInfo.hDescriptorHandle = -1;
+					}
+					else
+					{
+						uint32_t offset = (uint32_t)(nHandle & 0xFFFFFFFF);
+						uint32_t size = (uint32_t)(nHandle >> 32) & 0x3FFFFF;
+						int descriptor = (int)(nHandle >> 54);
+						pSurface->texInfo.hDescriptorHandle = descriptor;
+					}
 				}
 
 				//float3 albedo = { 0.5f,0.5f,0.5f };
@@ -970,6 +1023,14 @@ void CLightBakerDlg::BuildGeometry()
 				if ((surface.adjoinflags & EAdjoin_BlocksLight) || nAdjoinSector < 0)
 					pSurface->nFlags |= EGpuSurface_BlocksLight;
 
+				// if the material name was valid, but it's not found, then QuerySurfaceVisible will return true
+				// so remove the flag here if the material itself didn't load
+				if (!pMaterial || !pMaterial->texture || !pMaterial->nBaseWidth || !pMaterial->nBaseHeight)
+					pSurface->nFlags &= ~EGpuSurface_IsVisible;
+
+				const float invTextureWidth = pMaterial ? 1.0f / (float)pMaterial->nBaseWidth : 1.0f;
+				const float invTextureHeight = pMaterial ? 1.0f / (float)pMaterial->nBaseHeight : 1.0f;
+
 				for (int nVertexIndex = 0; nVertexIndex < nNumVertices; ++nVertexIndex)
 				{
 					std::optional<float3> vertexOpt = Jed::QuerySurfaceVertex(m_pJed->GetLevel(), nSectorIndex, nSurfaceIndex, nVertexIndex);
@@ -992,9 +1053,9 @@ void CLightBakerDlg::BuildGeometry()
 					std::optional<float2> uvOpt = Jed::QuerySurfaceUV(m_pJed->GetLevel(), nSectorIndex, nSurfaceIndex, nVertexIndex);
 					if (uvOpt.has_value())
 					{
-						float2 uv = uvOpt.value();
-						pVertex->uv.x = uv.x;
-						pVertex->uv.y = uv.y;
+						const float2 uv = uvOpt.value();
+						pVertex->uv.x = uv.x * invTextureWidth;
+						pVertex->uv.y = uv.y * invTextureHeight;
 					}
 					else
 					{
@@ -1012,15 +1073,21 @@ void CLightBakerDlg::BuildGeometry()
 				//++nSurfaceOffset;
 			}
 		}
+
+		if (nVertexOffset != nExpectedVertices)
+		{
+			Jed::PrintMessage(m_pJed, msg_error, "Generated vertex count (%u) doesn't match expected count (%u).", nVertexOffset, nExpectedVertices);
+			return false;
+		}
 	}
 
 	if (m_nNormalSmoothingAngle <= 0)
-		return;
+		return true;
 
 	if (spatialVertices.size() != (size_t)m_nTotalVertices)
 	{
 		Jed::PrintMessage(m_pJed, msg_error, "Generated vertex count does not match the geometry buffers.");
-		return;
+		return false;
 	}
 
 	std::vector<uint32_t> neighborOffsets, neighborIndices;
@@ -1028,21 +1095,23 @@ void CLightBakerDlg::BuildGeometry()
 	if (!BuildNormalAdjacency(spatialVertices, adjoinEdges, neighborOffsets, neighborIndices))
 	{
 		Jed::PrintMessage(m_pJed, msg_error, "Failed to build normal adjacency lists.");
-		return;
+		return false;
 	}
 
 	if (!UploadStructuredBuffer(m_normalNeighborOffsetsBuffer, neighborOffsets))
 	{
 		Jed::PrintMessage(m_pJed, msg_error, "Failed to upload normal neighbor offsets.");
-		return;
+		return false;
 	}
 
 	if (!UploadStructuredBuffer(m_normalNeighborIndicesBuffer, neighborIndices))
 	{
 		m_normalNeighborOffsetsBuffer.Release();
 		Jed::PrintMessage(m_pJed, msg_error, "Failed to upload normal neighbor indices.");
-		return;
+		return false;
 	}
+
+	return true;
 }
 
 bool CLightBakerDlg::BuildNormalAdjacency(std::vector<SSpatialVertex>& vertices, const std::vector<uint64_t>& adjoinEdges, std::vector<uint32_t>& offsets, std::vector<uint32_t>& indices)
@@ -1187,7 +1256,9 @@ void CLightBakerDlg::DispatchBakePass(int nDispatchX, int nDispatchY, ID3D11Comp
 		m_vertexBuffer.GetSRV(),
 		m_lightBuffer.GetSRV(),
 		m_normalBuffer.GetSRV(),
-		pReadBuffer->GetSRV()
+		pReadBuffer->GetSRV(),
+		m_vram.GetDescriptorSRV(),
+		m_vram.GetSRV(),
 	};
 	
 	ID3D11UnorderedAccessView* apUnorderedResources[] =
@@ -1200,16 +1271,16 @@ void CLightBakerDlg::DispatchBakePass(int nDispatchX, int nDispatchY, ID3D11Comp
 
 	m_pDeviceContextD3D->CSSetShader(pShader, nullptr, 0);
 	m_pDeviceContextD3D->CSSetConstantBuffers(0, 1, apConstantBuffers);
-	m_pDeviceContextD3D->CSSetShaderResources(0, 8, apShaderResources);
+	m_pDeviceContextD3D->CSSetShaderResources(0, 10, apShaderResources);
 	m_pDeviceContextD3D->CSSetUnorderedAccessViews(0, 2, apUnorderedResources, 0);
 	m_pDeviceContextD3D->Dispatch(nDispatchX, nDispatchY, 1);
 
 	ID3D11Buffer* nullBuf[] = { nullptr };
-	ID3D11ShaderResourceView* nullSRV[] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
+	ID3D11ShaderResourceView* nullSRV[] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
 	ID3D11UnorderedAccessView* nullUAV[] = { nullptr, nullptr };
 
 	m_pDeviceContextD3D->CSSetConstantBuffers(0, 1, nullBuf);
-	m_pDeviceContextD3D->CSSetShaderResources(0, 8, nullSRV);
+	m_pDeviceContextD3D->CSSetShaderResources(0, 10, nullSRV);
 	m_pDeviceContextD3D->CSSetUnorderedAccessViews(0, 2, nullUAV, 0);
 	
 	m_pDeviceContextD3D->Flush();
@@ -1519,7 +1590,9 @@ SMaterial* CLightBakerDlg::LoadMaterial(const wchar_t* sFileName, const SColorma
 	SSurfaceFormat surfaceFormat;
 	surfaceFormat.format = materialHeader.colorFormat;
 
-	uint32_t nMipmap = 0;
+	uint32_t nBaseWidth = 0;
+	uint32_t nBaseHeight = 0;
+	uint32_t nSelectedMipLevel = 0;
 
 	std::vector<uint8_t> textureData;
 	for (uint32_t nTextureIdx = 0; nTextureIdx < materialHeader.nTextureCount; ++nTextureIdx)
@@ -1531,10 +1604,22 @@ SMaterial* CLightBakerDlg::LoadMaterial(const wchar_t* sFileName, const SColorma
 			return 0;
 		}
 		
+		nBaseWidth = textureHeader.nWidth;
+		nBaseHeight = textureHeader.nHeight;
+
+		const uint32_t nMipCount = std::min(textureHeader.nNumMipmaps, 4u);
+		if (!nMipCount || !nBaseWidth || !nBaseHeight)
+		{
+			m_pJed->CloseFile(nFileHandle);
+			return nullptr;
+		}
+
+		nSelectedMipLevel = nMipCount - 1;
+
 		// read mipmaps
-		uint32_t nWidth = textureHeader.nWidth;
-		uint32_t nHeight = textureHeader.nHeight;
-		for (nMipmap = 0; nMipmap < std::min(textureHeader.nNumMipmaps, 4u); ++nMipmap)
+		uint32_t nWidth = nBaseWidth;
+		uint32_t nHeight = nBaseHeight;
+		for (uint32_t nMipLevel = 0; nMipLevel < nMipCount; ++nMipLevel)
 		{
 			surfaceFormat.nWidth = nWidth;
 			surfaceFormat.nHeight = nHeight;
@@ -1560,24 +1645,29 @@ SMaterial* CLightBakerDlg::LoadMaterial(const wchar_t* sFileName, const SColorma
 	std::shared_ptr<CVBuffer> texture = std::make_shared<CVBuffer>();
 	if (!textureData.empty())
 	{
-		if (texture->Create(&m_vram, &surfaceFormat))
+		if (!texture->Create(&m_vram, &surfaceFormat))
 		{
-			void* pData = texture->Lock();
-			if(!pData)
-			{
-				Jed::PrintMessage(m_pJed, msg_error, "Failed to lock texture buffer for '%ls'.", sFileName);
-				m_pJed->CloseFile(nFileHandle);
-				return nullptr;
-			}
+			Jed::PrintMessage(m_pJed, msg_error,
+							  "Failed to create texture buffer for '%ls'.", sFileName);
 
-			memcpy(pData, textureData.data(), textureData.size());
-
-			texture->Unlock();
+			m_pJed->CloseFile(nFileHandle);
+			return nullptr;
 		}
+
+		void* pData = texture->Lock();
+		if(!pData)
+		{
+			Jed::PrintMessage(m_pJed, msg_error, "Failed to lock texture buffer for '%ls'.", sFileName);
+			m_pJed->CloseFile(nFileHandle);
+			return nullptr;
+		}
+
+		memcpy(pData, textureData.data(), textureData.size());
+		texture->Unlock();
 	}
 	m_pJed->CloseFile(nFileHandle);
 
-	auto [materialIt, inserted] = m_materialColorCache.emplace((char*)sFileName, SMaterial{materialHeader.colorFormat, recordHeader, texture, recordHeader.nFillColor, nMipmap});
+	auto [materialIt, inserted] = m_materialColorCache.emplace((char*)sFileName, SMaterial{materialHeader.colorFormat, recordHeader, texture, recordHeader.nFillColor, nSelectedMipLevel, nBaseWidth, nBaseHeight});
 	if (!inserted)
 	{
 		Jed::PrintMessage(m_pJed, msg_error, "Failed to insert material '%ls' into cache.", sFileName);

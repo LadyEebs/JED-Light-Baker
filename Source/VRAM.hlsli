@@ -1,14 +1,14 @@
 #ifndef VRAM_H
 #define VRAM_H
 
-static const uint VRAM_SIZE = 256 * 1024 * 1024; // needs to match VRAM_SIZE in VRAM.h
-static const uint VRAM_MASK = ((VRAM_SIZE >> 1) - 1);
+static const uint kVRAMSize = 128 * 1024 * 1024; // needs to match VRAM_SIZE in VRAM.h
+static const uint kVRAMMask = (kVRAMSize - 1);
 
 Buffer<uint> VRAM : register(VRAM_REGISTER);
 
 uint CalculateAddress(int x, int y, int offset, int stride)
 {
-	return (x + y * stride + offset) & VRAM_MASK;
+	return (x + y * stride + offset) & kVRAMMask;
 }
 
 uint Load8(int2 coord, int2 offset)

@@ -14,9 +14,7 @@ struct SSector
 
 struct SSurfaceTexInfo
 {
-	uint64_t offsetStride;
-	uint32_t uWrap, vWrap;
-	uint32_t texRowShift;
+	int32_t hDescriptorHandle;
 	float emissiveLightLevel;
 };
 

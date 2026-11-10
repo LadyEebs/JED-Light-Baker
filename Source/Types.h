@@ -91,7 +91,9 @@ struct SMaterial
 	SMaterialRecordHeader header;
 	std::shared_ptr<CVBuffer> texture;
 	uint32_t nFillColor = 0;
-	uint32_t nMipmap = 0;
+	uint32_t nMipLevel = 0;
+	uint32_t nBaseWidth = 0;
+	uint32_t nBaseHeight = 0;
 };
 
 // Spatial vertex for normal smoothing

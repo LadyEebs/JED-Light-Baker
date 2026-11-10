@@ -89,10 +89,7 @@ struct SSector
 
 struct SSurfaceTexInfo
 {
-	uint nOffset;
-	uint nStride;
-	uint uWrap, vWrap;
-	uint nTexRowShift;
+	int hDescriptorHandle;
 	float emissiveLightLevel;
 };
 
@@ -355,29 +352,23 @@ float4 GetSurfaceColor(int nSurfaceIndex, float2 uv, bool bIsAlbedo)
 	// texturing info
 	SSurfaceTexInfo texInfo = aSurfaces[nSurfaceIndex].texInfo;
 	
+	if (texInfo.hDescriptorHandle < 0)
+		return float4(0, 0, 0, 1);
+
 	// read the descriptor
-	SDescriptor desc = aDescriptors[texInfo.nOffset];
-	
-	// compute the wrapped uv coordinates in fixed point
-	int x_fixed = (int) (65536.0 * uv.x) + 0x8000;
-	int y_fixed = (int) (65536.0 * uv.y) + 0x8000;
-	
-	// coordinate wrapping
-	int x_wrapped = (x_fixed & texInfo.uWrap) >> 16;
-	int y_wrapped = (y_fixed >> (16 - texInfo.nTexRowShift)) & texInfo.vWrap;
+	SDescriptor desc = aDescriptors[texInfo.hDescriptorHandle];
 	
 	// sample the texture
 	// todo: pass the palette index and light level
-	uint4 color = SampleTextureRGBA(desc, int2(x_wrapped, y_wrapped), bIsAlbedo); //, colormapIndex, lightLevel);
+	uint4 color = SampleTextureRGBA(desc, uv, bIsAlbedo); //, colormapIndex, lightLevel);
 	float4 colorf = float4(color) / 255.0; // normalize to [0,1] range
 	
 	// apply gamma correction if needed
 	if (g_levelInfo.nBakeFlags & ELightBake_GammaCorrect)
 		colorf.rgb = GammaToLinear(colorf.rgb);
 	
-	// allow the extra light to increase the intensity
-	if (!bIsAlbedo && (g_levelInfo.nBakeFlags & ELightBake_ExtraLightEmissive))
-		colorf.rgb *= max(texInfo.emissiveLightLevel, 1.0f);
+	if (!bIsAlbedo)
+		colorf.rgb *= texInfo.emissiveLightLevel;
 	
 	// todo: for 16 bit RGBA, we should use the alpha as the emissive mask
 	
@@ -556,9 +547,9 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 			const float4 surfaceWeight = payload.attenuation * surfaceAlpha;
 			const float4 surfaceLight = InterpolateSurfaceLight(nHitSurfaceIndex, hitPos);
 
-			const float2 uv = InterpolateSurfaceUV(payload.nHitSurfaceIndex, payload.hitPos);
-			float4 albedo = GetSurfaceAlbedo(payload.nHitSurfaceIndex, uv); // aSurfaces[payload.nHitSurfaceIndex].albedo;
-			float4 emissive = GetSurfaceEmissive(payload.nHitSurfaceIndex, uv); // aSurfaces[payload.nHitSurfaceIndex].emissive;
+			const float2 uv = InterpolateSurfaceUV(nHitSurfaceIndex, payload.hitPos);
+			float4 albedo = GetSurfaceAlbedo(nHitSurfaceIndex, uv); // aSurfaces[payload.nHitSurfaceIndex].albedo;
+			float4 emissive = GetSurfaceEmissive(nHitSurfaceIndex, uv); // aSurfaces[payload.nHitSurfaceIndex].emissive;
 			
 			albedo.a = GetLuminance(albedo.rgb);
 			emissive.a = GetLuminance(emissive.rgb);
