@@ -956,9 +956,13 @@ void CLightBakerDlg::BuildGeometry()
 					if (surface.faceflags & EFace_ForceEmissive)
 						nEmissiveLightLevel = -1;
 
-					const SMaterialFillColors colors = LoadMaterialFillColor(surface.material, pColormap, nEmissiveLightLevel);
-					albedo = colors.albedo;
-					emissive = colors.emissive;
+					const SMaterialFillColors colors = LoadMaterialFillColor(surface.material, pColormap);
+					albedo = colors.albedo;					
+					if (colors.nFillColor >= 0) // if we have a fill index then we're using indexed color
+						emissive = pColormap->GetColor(colors.nFillColor, nEmissiveLightLevel);
+					else // otherwise we're using a material color and we can scale it by the light level
+						emissive = nEmissiveLightLevel != 0 ? albedo * (float)nEmissiveLightLevel / 63.0f : emissive;
+
 					if (m_nBakeFlags & ELightBake_GammaCorrect)
 					{
 						albedo = ToLinear(albedo);
@@ -1466,7 +1470,7 @@ SColormap* CLightBakerDlg::LoadColormap(const wchar_t* sFileName)
 	return &colormap;
 }
 
-SMaterialFillColors CLightBakerDlg::LoadMaterialFillColor(const wchar_t* sFileName, const SColormap* pColormap, int nEmissiveLightLevel)
+SMaterialFillColors CLightBakerDlg::LoadMaterialFillColor(const wchar_t* sFileName, const SColormap* pColormap)
 {
 	if (!sFileName || sFileName[0] == '\0')
 		return {};
@@ -1524,7 +1528,7 @@ SMaterialFillColors CLightBakerDlg::LoadMaterialFillColor(const wchar_t* sFileNa
 		if (pColormap)
 		{
 			colors.albedo = pColormap->GetColor(recordHeader.nFillColor, -1);
-			colors.emissive = pColormap->GetColor(recordHeader.nFillColor, nEmissiveLightLevel);
+			colors.nFillColor = recordHeader.nFillColor;
 		}
 		else
 		{
@@ -1534,8 +1538,7 @@ SMaterialFillColors CLightBakerDlg::LoadMaterialFillColor(const wchar_t* sFileNa
 	else // RGBA textures could store a fill color but we can't know right now, so find the last mip and average it
 	{
 		colors.albedo = DecodeRGBA8(recordHeader.nFillColor, colorFormat);
-		colors.emissive = {0,0,0,1};
-
+		
 		const uint32_t nBitsPerPixel = colorFormat.nBitsPerPixel;
 		const uint32_t nBytesPerPixel = nBitsPerPixel / 8u;
 
@@ -1594,8 +1597,6 @@ SMaterialFillColors CLightBakerDlg::LoadMaterialFillColor(const wchar_t* sFileNa
 				avg /= (float)nPixelCount;
 			
 			colors.albedo = avg;
-			if (nEmissiveLightLevel >= 0)
-				colors.emissive = avg * ((float)nEmissiveLightLevel / 64.0f);
 		}
 	}
 

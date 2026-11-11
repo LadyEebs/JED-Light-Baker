@@ -85,7 +85,7 @@ struct SMaterialTextureHeader
 struct SMaterialFillColors
 {
 	float4 albedo = {0, 0, 0, 1};
-	float4 emissive = {0, 0, 0, 1};
+	int32_t nFillColor = -1;
 };
 
 // Spatial vertex for normal smoothing

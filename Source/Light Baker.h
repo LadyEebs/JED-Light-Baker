@@ -76,7 +76,7 @@ private:
 	SColormap* LoadColormap(const wchar_t* sFileName);
 
 	// attempt to load and cache a material, if the filename was already loaded, the cached result is returned
-	SMaterialFillColors LoadMaterialFillColor(const wchar_t* sFileName, const SColormap* pColormap, int nEmissiveLightLevel);
+	SMaterialFillColors LoadMaterialFillColor(const wchar_t* sFileName, const SColormap* pColormap);
 
 	// load an embedded resource (usually shader blobs)
 	bool LoadEmbeddedShader(UINT resourceID, const void** data, DWORD* size) const;
