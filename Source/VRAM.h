@@ -18,6 +18,7 @@ struct SVRAMBlock
 // Packed form of rdTexformat for GPU access
 struct SVRAMDescriptorFormat
 {
+	SVRAMDescriptorFormat() = default;
 	SVRAMDescriptorFormat(const SColorFormat* pFormat)
 	{
 		nColorMode = pFormat->nColorMode;
@@ -70,6 +71,7 @@ struct SSurfaceFormat
 // NOTE: This is a GPU struct
 struct SVRAMDescriptor
 {
+	SVRAMDescriptor() = default;
 	SVRAMDescriptor(const SSurfaceFormat* pSurfaceFormat, uint32_t nOffset, uint32_t nSize)
 		: format(&pSurfaceFormat->format)
 		, nOffset(nOffset)

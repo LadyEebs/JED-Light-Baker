@@ -243,57 +243,99 @@ float3 GenRay(int N, int M)
 	return float3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
 }
 
-// Shoddy interpolation of vertex color over a surface, but has better properties than triangle interpolation
+
+static const float kSurfaceInterpolationEpsilon = 1e-5f;
+
+float ComputeSurfaceVertexWeight(float3 vPrev, float3 vCurr, float3 vNext, float3 pos)
+{
+	const float3 wPrev = vPrev - pos;
+	const float3 wCurr = vCurr - pos;
+	const float3 wNext = vNext - pos;
+
+	const float lenPrev = length(wPrev);
+	const float lenCurr = length(wCurr);
+	const float lenNext = length(wNext);
+
+	const float productPrev = lenPrev * lenCurr;
+	const float productNext = lenCurr * lenNext;
+
+	const float tanHalfPrev = length(cross(wPrev, wCurr)) / max(productPrev + dot(wPrev, wCurr), productPrev * 1e-12f);
+	const float tanHalfNext = length(cross(wCurr, wNext)) / max(productNext + dot(wCurr, wNext), productNext * 1e-12f);
+
+	return (tanHalfPrev + tanHalfNext) / lenCurr;
+}
+
+bool GetSurfaceEdgeParameter(float3 pos, float3 v0, float3 v1, out float t)
+{
+	const float3 edge = v1 - v0;
+	const float edgeLengthSq = dot(edge, edge);
+
+	if (edgeLengthSq < 1e-20f)
+	{
+		t = 0.0f;
+		return false;
+	}
+
+	t = dot(pos - v0, edge) / edgeLengthSq;
+	if (t < 0.0f || t > 1.0f)
+		return false;
+
+	const float3 delta = pos - (v0 + edge * t);
+	return dot(delta, delta) <= kSurfaceInterpolationEpsilon * kSurfaceInterpolationEpsilon;
+}
+
 float4 InterpolateSurfaceLight(int nSurfaceIndex, float3 pos)
 {
 	const uint nFirstVertex = aSurfaces[nSurfaceIndex].nFirstVertex;
-    const uint nNumVertices = aSurfaces[nSurfaceIndex].nNumVertices;
+	const uint nNumVertices = aSurfaces[nSurfaceIndex].nNumVertices;
 
-    float4 vertexLight = float4(0,0,0,0);
-    float totalWeight = 0.0;
+	if (nNumVertices < 3)
+		return float4(0, 0, 0, 0);
+
+	uint nVertexIndex;
+	
+    // Handle positions at vertices and along edges
+    [loop]
+	for (nVertexIndex = 0; nVertexIndex < nNumVertices; ++nVertexIndex)
+	{
+		const uint nNextIndex = (nVertexIndex + 1) % nNumVertices;
+
+		const uint nCurrVertex = nFirstVertex + nVertexIndex;
+		const uint nNextVertex = nFirstVertex + nNextIndex;
+
+		const float3 vCurr = aVertices[nCurrVertex].position.xyz;
+		const float3 vNext = aVertices[nNextVertex].position.xyz;
+
+		const float3 delta = pos - vCurr;
+
+		if (dot(delta, delta) <= kSurfaceInterpolationEpsilon * kSurfaceInterpolationEpsilon)
+			return aVertexColors[nCurrVertex];
+
+		float t;
+		if (GetSurfaceEdgeParameter(pos, vCurr, vNext, t))
+			return lerp(aVertexColors[nCurrVertex], aVertexColors[nNextVertex], t);
+	}
+
+	float4 vertexLight = float4(0, 0, 0, 0);
+	float totalWeight = 0.0f;
 
     [loop]
-    for (uint nVertexIndex = 0; nVertexIndex < nNumVertices; ++nVertexIndex)
-    {
-        // Previous, current, next vertex indices
-        const uint nPrevIndex = (nVertexIndex + nNumVertices - 1) % nNumVertices;
-        const uint nCurrIndex = nVertexIndex;
-        const uint nNextIndex = (nVertexIndex + 1) % nNumVertices;
+	for (nVertexIndex = 0; nVertexIndex < nNumVertices; ++nVertexIndex)
+	{
+		const uint nPrevIndex = (nVertexIndex + nNumVertices - 1) % nNumVertices;
+		const uint nNextIndex = (nVertexIndex + 1) % nNumVertices;
 
-        const float3 vPrev = aVertices[nFirstVertex + nPrevIndex].position.xyz;
-        const float3 vCurr = aVertices[nFirstVertex + nCurrIndex].position.xyz;
-        const float3 vNext = aVertices[nFirstVertex + nNextIndex].position.xyz;
+		const float3 vPrev = aVertices[nFirstVertex + nPrevIndex].position.xyz;
+		const float3 vCurr = aVertices[nFirstVertex + nVertexIndex].position.xyz;
+		const float3 vNext = aVertices[nFirstVertex + nNextIndex].position.xyz;
 
-        // Vectors from pos to vertices
-		float3 wPrev = vPrev - pos;
-		float3 wCurr = vCurr - pos;
-		float3 wNext = vNext - pos;
+		const float weight = ComputeSurfaceVertexWeight(vPrev, vCurr, vNext, pos);
 
-        const float lenPrev = length(wPrev) + 1e-5;
-        const float lenCurr = length(wCurr) + 1e-5;
-        const float lenNext = length(wNext) + 1e-5;
+		vertexLight += aVertexColors[nFirstVertex + nVertexIndex] * weight;
+		totalWeight += weight;
+	}
 
-        wPrev /= lenPrev;
-        wCurr /= lenCurr;
-        wNext /= lenNext;
-
-        // Compute tan(theta/2) for previous and next angles
-        const float sinThetaPrev = length(cross(wCurr, wPrev));
-        const float cosThetaPrev = dot(wCurr, wPrev);
-        const float tanHalfPrev = sinThetaPrev / (1.0 + cosThetaPrev + 1e-5);
-
-        const float sinThetaNext = length(cross(wNext, wCurr));
-        const float cosThetaNext = dot(wNext, wCurr);
-        const float tanHalfNext = sinThetaNext / (1.0 + cosThetaNext + 1e-5);
-
-        // Weight for this vertex
-        const float weight = (tanHalfPrev + tanHalfNext) / lenCurr;
-
-        vertexLight += aVertexColors[nFirstVertex + nCurrIndex] * weight;
-        totalWeight += weight;
-    }
-
-    return totalWeight < 1e-5 ? float4(0,0,0,0) : vertexLight / totalWeight;
+	return totalWeight > 1e-20f ? vertexLight / totalWeight : float4(0, 0, 0, 0);
 }
 
 float2 InterpolateSurfaceUV(int nSurfaceIndex, float3 pos)
@@ -301,66 +343,65 @@ float2 InterpolateSurfaceUV(int nSurfaceIndex, float3 pos)
 	const uint nFirstVertex = aSurfaces[nSurfaceIndex].nFirstVertex;
 	const uint nNumVertices = aSurfaces[nSurfaceIndex].nNumVertices;
 
+	if (nNumVertices < 3)
+		return float2(0, 0);
+
+	uint nVertexIndex;
+	
+    // Handle positions at vertices and along edges
+    [loop]
+	for (nVertexIndex = 0; nVertexIndex < nNumVertices; ++nVertexIndex)
+	{
+		const uint nNextIndex = (nVertexIndex + 1) % nNumVertices;
+
+		const uint nCurrVertex = nFirstVertex + nVertexIndex;
+		const uint nNextVertex = nFirstVertex + nNextIndex;
+
+		const float3 vCurr = aVertices[nCurrVertex].position.xyz;
+		const float3 vNext = aVertices[nNextVertex].position.xyz;
+
+		const float3 delta = pos - vCurr;
+
+		if (dot(delta, delta) <= kSurfaceInterpolationEpsilon * kSurfaceInterpolationEpsilon)
+			return aVertices[nCurrVertex].uv;
+
+		float t;
+		if (GetSurfaceEdgeParameter(pos, vCurr, vNext, t))
+			return lerp(aVertices[nCurrVertex].uv, aVertices[nNextVertex].uv, t);
+	}
+
 	float2 vertexUV = float2(0, 0);
-	float totalWeight = 0.0;
+	float totalWeight = 0.0f;
 
     [loop]
-	for (uint nVertexIndex = 0; nVertexIndex < nNumVertices; ++nVertexIndex)
+	for (nVertexIndex = 0; nVertexIndex < nNumVertices; ++nVertexIndex)
 	{
-        // Previous, current, next vertex indices
 		const uint nPrevIndex = (nVertexIndex + nNumVertices - 1) % nNumVertices;
-		const uint nCurrIndex = nVertexIndex;
 		const uint nNextIndex = (nVertexIndex + 1) % nNumVertices;
 
 		const float3 vPrev = aVertices[nFirstVertex + nPrevIndex].position.xyz;
-		const float3 vCurr = aVertices[nFirstVertex + nCurrIndex].position.xyz;
+		const float3 vCurr = aVertices[nFirstVertex + nVertexIndex].position.xyz;
 		const float3 vNext = aVertices[nFirstVertex + nNextIndex].position.xyz;
 
-        // Vectors from pos to vertices
-		float3 wPrev = vPrev - pos;
-		float3 wCurr = vCurr - pos;
-		float3 wNext = vNext - pos;
+		const float weight = ComputeSurfaceVertexWeight(vPrev, vCurr, vNext, pos);
 
-		const float lenPrev = length(wPrev) + 1e-5;
-		const float lenCurr = length(wCurr) + 1e-5;
-		const float lenNext = length(wNext) + 1e-5;
-
-		wPrev /= lenPrev;
-		wCurr /= lenCurr;
-		wNext /= lenNext;
-
-        // Compute tan(theta/2) for previous and next angles
-		const float sinThetaPrev = length(cross(wCurr, wPrev));
-		const float cosThetaPrev = dot(wCurr, wPrev);
-		const float tanHalfPrev = sinThetaPrev / (1.0 + cosThetaPrev + 1e-5);
-
-		const float sinThetaNext = length(cross(wNext, wCurr));
-		const float cosThetaNext = dot(wNext, wCurr);
-		const float tanHalfNext = sinThetaNext / (1.0 + cosThetaNext + 1e-5);
-
-        // Weight for this vertex
-		const float weight = (tanHalfPrev + tanHalfNext) / lenCurr;
-
-		vertexUV += aVertices[nFirstVertex + nCurrIndex].uv * weight;
+		vertexUV += aVertices[nFirstVertex + nVertexIndex].uv * weight;
 		totalWeight += weight;
 	}
 
-	return totalWeight < 1e-5 ? float2(0, 0) : vertexUV / totalWeight;
+	return totalWeight > 1e-20f ? vertexUV / totalWeight : float2(0, 0);
 }
 
 // Fetch the color of the surface at a uv coordinate
 float4 GetSurfaceColor(int nSurfaceIndex, float2 uv, bool bIsAlbedo)
 {
 	SSurfaceTexInfo texInfo = aSurfaces[nSurfaceIndex].texInfo;
-	uint4 color = SampleTextureRGBA(texInfo.hDescriptorHandle, uv, bIsAlbedo);
+	uint4 color = SampleTextureRGBA(texInfo.hDescriptorHandle, uv, bIsAlbedo, texInfo.emissiveLightLevel);
 	float4 colorf = (float4)color / 255.0; // normalize to [0,1] range
 	
 	// apply gamma correction if needed
 	if (g_levelInfo.nBakeFlags & ELightBake_GammaCorrect)
 		colorf.rgb = GammaToLinear(colorf.rgb);
-	
-	if (!bIsAlbedo)
-		colorf.rgb *= texInfo.emissiveLightLevel;
 	
 	// todo: for 16 bit RGBA, we should use the alpha as the emissive mask
 	
@@ -539,7 +580,7 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 			const float4 surfaceWeight = payload.attenuation * surfaceAlpha;
 			const float4 surfaceLight = InterpolateSurfaceLight(nHitSurfaceIndex, hitPos);
 
-			const float2 uv = InterpolateSurfaceUV(nHitSurfaceIndex, payload.hitPos);
+			const float2 uv = InterpolateSurfaceUV(nHitSurfaceIndex, hitPos);
 			float4 albedo = GetSurfaceAlbedo(nHitSurfaceIndex, uv); // aSurfaces[payload.nHitSurfaceIndex].albedo;
 			float4 emissive = GetSurfaceEmissive(nHitSurfaceIndex, uv); // aSurfaces[payload.nHitSurfaceIndex].emissive;
 			

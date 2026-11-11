@@ -29,8 +29,8 @@ symbols
 	int physical_falloff=1 desc="Whether to use physical falloff for point lights"
 	int tone_map=0 desc="Whether to apply tone mapping to the baked lightmaps"
 	int sky_color_from_materials=0 desc="Whether to use the sky color from materials instead of a fixed color"
-	int sky_emissive_ray_count=1024 desc="Number of rays to trace for sky and emissive light"
-	int indirect_ray_count=1024 desc="Number of rays to trace for indirect light"
+	int sky_emissive_ray_count=4096 desc="Number of rays to trace for sky and emissive light"
+	int indirect_ray_count=4096 desc="Number of rays to trace for indirect light"
 	int indirect_bounces=3 desc="Number of bounces for indirect light"
 	int normal_smoothing_angle=35 desc="Angle threshold for normal smoothing"
 end
@@ -54,9 +54,9 @@ static constexpr float kInvSmoothCellSize = 316.2277660168f;
 static constexpr uint32_t kInvalidVertex = UINT32_MAX;
 
 // Ray tracing defaults
-static constexpr const wchar_t* ksRaysPerVertex[] = { _T("256"), _T("512"), _T("1024")};
-static constexpr int kRaysPerVertex[] = { 256, 512, 1024 };
-static constexpr int kDefRaysPerVertexIdx = 2;
+static constexpr const wchar_t* ksRaysPerVertex[] = { _T("256"), _T("512"), _T("1024"), _T("2048"), _T("4096")};
+static constexpr int kRaysPerVertex[] = { 256, 512, 1024, 2048, 4096 };
+static constexpr int kDefRaysPerVertexIdx = 4;
 
 float3 SColormap::GetColor(uint32_t nIndex, int nLightLevel) const
 {
@@ -725,7 +725,7 @@ bool CLightBakerDlg::PreloadMasterCMP()
 	CGpuBufferMapping<uint32_t> lightLevel(&m_lightLevelBuffer, D3D11_MAP_WRITE);
 	for (int nLevelIndex = 0; nLevelIndex < 256 * 64; ++nLevelIndex)
 	{
-		lightLevel[nLevelIndex] = pColormap->nLightLevels[nLevelIndex];
+		lightLevel[nLevelIndex] = (uint32_t)pColormap->nLightLevels[nLevelIndex];
 	}
 
 	return true;
@@ -963,7 +963,7 @@ bool CLightBakerDlg::BuildGeometry()
 				pSurface->texInfo.emissiveLightLevel = 0.0f;
 
 				// if this is an 8 bit material (which has fullbright/emissive pixels) or a forced emissive surface then we want full emission
-				if (surface.faceflags & EFace_ForceEmissive || pMaterial && pMaterial->format.nColorMode == 0)
+				if (surface.faceflags & EFace_ForceEmissive)
 					pSurface->texInfo.emissiveLightLevel = 1.0f;
 
 				// apply extra light as a multipler if desired
@@ -985,7 +985,7 @@ bool CLightBakerDlg::BuildGeometry()
 					else
 					{
 						uint64_t nHandle = pMaterial->texture->GetSurfaceHandle();
-						if (nHandle == -1)
+						if (nHandle == 0)
 						{
 							pSurface->texInfo.hDescriptorHandle = 0;
 						}
@@ -1975,8 +1975,8 @@ int CLightBakerDlg::GetOrCreateSettingsCog()
 	setSettingsValue(ESetting_PhysicalFalloff, 1);
 	setSettingsValue(ESetting_ToneMap, 0);
 	setSettingsValue(ESetting_SkyColorFromMaterials, 0);
-	setSettingsValue(ESetting_SkyEmissiveRayCount, 1024);
-	setSettingsValue(ESetting_IndirectRayCount, 1024);
+	setSettingsValue(ESetting_SkyEmissiveRayCount, 4096);
+	setSettingsValue(ESetting_IndirectRayCount, 4096);
 	setSettingsValue(ESetting_IndirectBounces, 3);
 	setSettingsValue(ESetting_NormalSmoothingAngle, 35);
 	return nSettingsCogIndex;

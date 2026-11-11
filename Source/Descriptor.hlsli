@@ -38,13 +38,13 @@ uint GetDescriptorColorMode(SDescriptor desc)
 
 uint2 GetTextureCoordinate(SDescriptor desc, float2 uv)
 {
-	const uint2 resolution = max(desc.resolution, uint2(1, 1));
-	const float2 wrappedUV = frac(uv);
-	uint2 coord = (uint2)floor(wrappedUV * (float2)resolution + 0.5f);
-	return coord % resolution;
+	const int2 resolution = max((int2) desc.resolution, int2(1, 1));
+	int2 coord = (int2)floor(uv * (float2)resolution + 0.5f);
+	coord = ((coord % resolution) + resolution) % resolution;
+	return (uint2) coord;
 }
 
-uint4 SampleTextureRGBA(int hDescriptorHandle, float2 uv, bool bIsAlbedo)
+uint4 SampleTextureRGBA(int hDescriptorHandle, float2 uv, bool bIsAlbedo, float emissiveLightLevel)
 {
 	// if the handle is 0 it's invalid, return black
 	if (hDescriptorHandle == 0)
@@ -58,7 +58,8 @@ uint4 SampleTextureRGBA(int hDescriptorHandle, float2 uv, bool bIsAlbedo)
 		uint pixel = abs(hDescriptorHandle);
 		if (!bIsAlbedo)
 		{
-			pixel = aLightLevels[pixel];
+			uint lightLevel = saturate(emissiveLightLevel) * 63.0;
+			pixel = aLightLevels[lightLevel * 256 + pixel];
 		}
 		return DecodeColormapPixel(aColormap[pixel]);
 	}
@@ -75,7 +76,8 @@ uint4 SampleTextureRGBA(int hDescriptorHandle, float2 uv, bool bIsAlbedo)
 		uint pixel = Load8(coord.xy, int2(desc.offset, desc.rowStride));
 		if (!bIsAlbedo)
 		{
-			pixel = aLightLevels[pixel]; // light level 0
+			uint lightLevel = saturate(emissiveLightLevel) * 63.0;
+			pixel = aLightLevels[lightLevel * 256 + pixel];
 		}
 		
 		uint4 result = DecodeColormapPixel(aColormap[pixel]);
@@ -92,6 +94,9 @@ uint4 SampleTextureRGBA(int hDescriptorHandle, float2 uv, bool bIsAlbedo)
 	// decode the pixel into rgba
 	uint4 result = uint4(0, 0, 0, 0);
 	DecodeRGBA(pixel, format, result.r, result.g, result.b, result.a);
+	
+	if (!bIsAlbedo)
+		result *= emissiveLightLevel;
 	
 	return result;
 }

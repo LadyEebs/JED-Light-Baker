@@ -23,6 +23,8 @@ void CVRAM::Create(ID3D11Device* pDevice, ID3D11DeviceContext* pContext)
 	//m_vram.ClearUAV();
 	//m_descriptors.ClearUAV();
 
+	m_descriptorData.emplace_back();
+
 	m_vramBlocks = new SVRAMBlock;
 	m_vramBlocks->nOffset = 0;
 	m_vramBlocks->nSize = kVRAMSize * 1024 * 1024;
@@ -45,6 +47,7 @@ void CVRAM::Release()
 	m_vram.Release();
 	m_descriptors.Release();
 	m_descriptorData.clear();
+	m_descriptorData.emplace_back();
 	m_freeDescriptors = std::stack<int>();
 	m_pVRAMData = nullptr;
 }
@@ -63,13 +66,13 @@ void CVRAM::FreeSurfaces()
 	m_vramBlocks->nSize = kVRAMSize * 1024 * 1024;
 	m_vramBlocks->pNext = nullptr;
 	m_descriptorData.clear();
+	m_descriptorData.emplace_back();
 	//m_descriptors.ClearUAV();
 	m_freeDescriptors = std::stack<int>();
 }
 
 void CVRAM::UpdateDescriptor(uint32_t index, SVRAMDescriptor* pData)
 {
-
 	if (index < m_descriptorData.size())
 	{
 		m_descriptorData[index] = *pData;
@@ -86,7 +89,7 @@ void CVRAM::UpdateDescriptor(uint32_t index, SVRAMDescriptor* pData)
 		m_descriptors.Create(m_pDevice, m_pDeviceContext, m_descriptorData.size() * 2, sizeof(SVRAMDescriptor), DXGI_FORMAT_UNKNOWN, 1, 0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED);
 	
 		// reupload the entire buffer
-		m_pDeviceContext->UpdateSubresource(m_descriptors.GetBuffer(), 0, nullptr, pData, 0, 0);
+		m_pDeviceContext->UpdateSubresource(m_descriptors.GetBuffer(), 0, nullptr, m_descriptorData.data(), 0, 0);
 	}
 	else
 	{
