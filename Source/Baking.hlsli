@@ -14,6 +14,9 @@ static const uint ELightBake_SkyColorFromMaterial = 0x800;
 static const uint ELightBake_AllowLightCleave     = 0x1000;
 static const uint ELightBake_AllowSunCleave       = 0x2000;
 
+// must match ESectorFlags
+static const uint EGpuSector_IsWater = 0x1;
+
 // must match ESurfaceFlags
 static const uint EGpuSurface_IsHorizonSky  = 0x1;
 static const uint EGpuSurface_IsCeilingSky  = 0x2;
@@ -59,8 +62,9 @@ struct SSector
 	uint   nFirstSurface;
 	uint   nNumSurfaces;
 	int    nLayerIndex;
-	uint   _padding;
+	uint   nFlags;
 	float4 center;
+	float4 tint;
 };
 
 struct SSurface
@@ -382,6 +386,13 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 		int nHitSurfaceIndex = -1;
 		if (!TraceSurfaces(nCurrentSector, start, end, hitPos, nHitSurfaceIndex))
 			return false;
+		
+		const float distanceInSector = max(0.0, dot(hitPos - start, rayDirection));
+		if (aSectors[nCurrentSector].nFlags & EGpuSector_IsWater)
+		{
+			const float4 waterAbsorption = exp(-aSectors[nCurrentSector].tint * distanceInSector);
+			payload.attenuation *= waterAbsorption;
+		}
 
 		const SSurface surface = aSurfaces[nHitSurfaceIndex];
 		const int nAdjoinSector = surface.nAdjoinSector;

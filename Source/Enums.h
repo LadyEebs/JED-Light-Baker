@@ -21,6 +21,12 @@ enum ELightBakeFlags
 	ELightBake_Direct = ELightBake_Lights | ELightBake_Sun | ELightBake_Sky | ELightBake_Emissive
 };
 
+// Gou sector flags
+enum EGpuSectorFlags
+{
+	EGpuSector_IsWater = 0x1,
+};
+
 // Gpu surface flags
 enum EGpuSurfaceFlags
 {
@@ -36,6 +42,8 @@ enum EGpuSurfaceFlags
 // Engine/editor sector flags
 enum ESectorFlags
 {
+	ESector_UnderWater = 0x2,
+
 	// SED specific
 	ESector_NoAmbientLightRGB = 0x20000000,
 	ESector_NoAmbientLight = 0x40000000

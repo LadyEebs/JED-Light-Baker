@@ -907,6 +907,8 @@ void CLightBakerDlg::BuildGeometry()
 			pSector->center.x = float(box.x1 + box.x2) * 0.5f;
 			pSector->center.y = float(box.y1 + box.y2) * 0.5f;
 			pSector->center.z = float(box.z1 + box.z2) * 0.5f;
+			pSector->nFlags = (sector.flags & ESector_UnderWater) ? EGpuSector_IsWater : 0;
+			pSector->tint = {sector.tint_r, sector.tint_g, sector.tint_b, (sector.tint_r + sector.tint_g + sector.tint_b) / 3.0f};
 
 			uint32_t nSurfaceBase = nSurfaceOffset;
 			uint32_t nAdjoinCursor = nSurfaceBase;              // grows forward
