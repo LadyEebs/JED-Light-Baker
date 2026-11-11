@@ -2,6 +2,7 @@
 
 #include "Enums.h"
 #include "float3.h"
+#include "float4.h"
 
 // Minimal colormap support (for reading basic color and light table)
 struct SColormapHeader
@@ -69,6 +70,22 @@ struct SMaterialRecordHeaderExt
 	uint32_t nHeight = 0;
 	uint32_t nTransparentColor = 0;
 	uint32_t nTextureIndex = 0;
+};
+
+struct SMaterialTextureHeader
+{
+	uint32_t nWidth;
+	uint32_t nHeight;
+	uint32_t nAlphaEn;
+	uint32_t nUnk0C;
+	uint32_t nUnk10;
+	uint32_t nNumMipmaps;
+};
+
+struct SMaterialFillColors
+{
+	float4 albedo = {0, 0, 0, 1};
+	float4 emissive = {0, 0, 0, 1};
 };
 
 // Spatial vertex for normal smoothing

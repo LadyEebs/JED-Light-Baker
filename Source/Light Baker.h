@@ -76,7 +76,7 @@ private:
 	SColormap* LoadColormap(const wchar_t* sFileName);
 
 	// attempt to load and cache a material, if the filename was already loaded, the cached result is returned
-	uint32_t   LoadMaterialFillColor(const wchar_t* sFileName, const SColormap* pColormap);
+	SMaterialFillColors LoadMaterialFillColor(const wchar_t* sFileName, const SColormap* pColormap, int nEmissiveLightLevel);
 
 	// load an embedded resource (usually shader blobs)
 	bool LoadEmbeddedShader(UINT resourceID, const void** data, DWORD* size) const;
@@ -164,7 +164,7 @@ private:
 
 	// Resource caching
 	std::unordered_map<std::wstring, SColormap> m_colormapCache;
-	std::unordered_map<std::wstring, uint32_t>  m_materialColorCache;
+	std::unordered_map<std::wstring, SMaterialFillColors>  m_materialColorCache;
 };
 
 template<typename T>

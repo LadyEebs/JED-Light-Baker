@@ -148,6 +148,64 @@ void ForEachNormalNeighbor(uint32_t nVertexIndex0, const std::vector<SSpatialVer
 	}
 }
 
+static uint32_t ScaleColorComponent(uint32_t value, uint32_t sourceBits, uint32_t targetBits)
+{
+	if (!sourceBits || !targetBits)
+		return 0;
+
+	sourceBits = std::min(sourceBits, 32u);
+	targetBits = std::min(targetBits, 32u);
+
+	const uint64_t sourceMax = sourceBits == 32 ? 0xffffffffull : ((1ull << sourceBits) - 1ull);
+	const uint64_t targetMax = targetBits == 32 ? 0xffffffffull : ((1ull << targetBits) - 1ull);
+	const uint64_t clamped = std::min<uint64_t>(value, sourceMax);
+
+	return (uint32_t)((clamped * targetMax + sourceMax / 2ull) / sourceMax);
+}
+
+static uint32_t GetComponentMask(uint32_t bits)
+{
+	if (!bits)
+		return 0;
+
+	return bits >= 32 ? 0xffffffffu : ((1u << bits) - 1u);
+}
+
+static int64_t GetComponentShift(uint32_t shift)
+{
+	return shift <= 0x7fffffffu ? (int64_t)shift : (int64_t)shift - 0x100000000ll;
+}
+
+static uint32_t DecodeComponent(uint32_t value, uint32_t bits, uint32_t shift, uint32_t bitDiff)
+{
+	if (!bits)
+		return 0;
+
+	const int64_t signedShift = GetComponentShift(shift);
+	const uint32_t shifted = signedShift >= 0 ? (signedShift < 32 ? value >> (uint32_t)signedShift : 0u) : (bitDiff < 32 ? value << bitDiff : 0u);
+	return ScaleColorComponent(shifted & GetComponentMask(bits), bits, 8);
+}
+
+static void DecodeRGB(uint32_t encoded, const SColorFormat& format, uint32_t& red, uint32_t& green, uint32_t& blue)
+{
+	red = DecodeComponent(encoded, format.nRedBits, format.nRedShift, format.nRedDiff);
+	green = DecodeComponent(encoded, format.nGreenBits, format.nGreenShift, format.nGreenDiff);
+	blue = DecodeComponent(encoded, format.nBlueBits, format.nBlueShift, format.nBlueDiff);
+}
+
+static void DecodeRGBA(uint32_t encoded, const SColorFormat& format, uint32_t& red, uint32_t& green, uint32_t& blue, uint32_t& alpha)
+{
+	DecodeRGB(encoded, format, red, green, blue);
+	alpha = format.nAlphaBits ? DecodeComponent(encoded, format.nAlphaBits, format.nAlphaShift, format.nAlphaDiff) : 255u;
+}
+
+static float4 DecodeRGBA8(uint32_t encoded, const SColorFormat& format)
+{
+	uint32_t red, green, blue, alpha;
+	DecodeRGBA(encoded, format, red, green, blue, alpha);
+	return float4((float)red / 255.0f, (float)green / 255.0f, (float)blue / 255.0f, (float)alpha / 255.0f);
+}
+
 CLightBakerApp theApp;
 static CLightBakerDlg* g_pLightBaker = nullptr;
 
@@ -884,8 +942,8 @@ void CLightBakerDlg::BuildGeometry()
 				pSurface->nFirstVertex = nVertexOffset;
 				pSurface->nNumVertices = nNumVertices;
 
-				float3 albedo = { 0.5f,0.5f,0.5f };
-				float3 emissive = { 0,0,0 };
+				float4 albedo = { 0.5f,0.5f,0.5f,1.0f };
+				float4 emissive = { 0,0,0,1.0f };
 				if (pColormap)
 				{
 					int emissiveLightLevel = 0;
@@ -898,9 +956,9 @@ void CLightBakerDlg::BuildGeometry()
 					if (surface.faceflags & EFace_ForceEmissive)
 						emissiveLightLevel = -1;
 
-					uint32_t nFillColor = LoadMaterialFillColor(surface.material, pColormap);
-					albedo = pColormap->GetColor(nFillColor, -1);
-					emissive = pColormap->GetColor(nFillColor, emissiveLightLevel);
+					const SMaterialFillColors colors = LoadMaterialFillColor(surface.material, pColormap, emissiveLightLevel);
+					albedo = colors.albedo;
+					emissive = colors.emissive;
 					if (m_nBakeFlags & ELightBake_GammaCorrect)
 					{
 						albedo = ToLinear(albedo);
@@ -1408,10 +1466,10 @@ SColormap* CLightBakerDlg::LoadColormap(const wchar_t* sFileName)
 	return &colormap;
 }
 
-uint32_t CLightBakerDlg::LoadMaterialFillColor(const wchar_t* sFileName, const SColormap* pColormap)
+SMaterialFillColors CLightBakerDlg::LoadMaterialFillColor(const wchar_t* sFileName, const SColormap* pColormap, int nEmissiveLightLevel)
 {
 	if (!sFileName || sFileName[0] == '\0')
-		return 0;
+		return {};
 
 	auto it = m_materialColorCache.find(sFileName);
 	if (it != m_materialColorCache.end())
@@ -1421,60 +1479,126 @@ uint32_t CLightBakerDlg::LoadMaterialFillColor(const wchar_t* sFileName, const S
 	if (nFileHandle < 0)
 	{
 		// the file wasn't found, to avoid console spam and slowdowns, insert a blank value
-		m_materialColorCache.emplace(sFileName, 0);
-		return 0;
+		m_materialColorCache.emplace(sFileName, SMaterialFillColors{});
+		return {};
 	}
+
+	// reduce a bit of copy-pasting
+	auto failedToLoad = [&] (const char* message) -> SMaterialFillColors
+	{
+		Jed::PrintMessage(m_pJed, msg_error, message, sFileName);
+		m_pJed->CloseFile(nFileHandle);
+		nFileHandle = -1;
+		return {};
+	};
 
 	SMaterialFileHeader materialHeader;
 	if (m_pJed->ReadFile(nFileHandle, &materialHeader, sizeof(SMaterialFileHeader)) != sizeof(SMaterialFileHeader))
-	{
-		Jed::PrintMessage(m_pJed, msg_error, "Failed to read file '%ls'.", sFileName);
-		m_pJed->CloseFile(nFileHandle);
-		return 0;
-	}
+		return failedToLoad("Failed to read file '%ls'.");
 
 	if (memcmp(materialHeader.magic, "MAT ", 4u))
-	{
-		Jed::PrintMessage(m_pJed, msg_error, "Bad material header in file '%ls'.", sFileName);
-		m_pJed->CloseFile(nFileHandle);
-		return 0;
-	}
+		return failedToLoad("Bad material header in file '%ls'.");
 
 	if (materialHeader.nVersion != 0x32)
-	{
-		Jed::PrintMessage(m_pJed, msg_error, "Unsupported material version for '%ls'.", sFileName);
-		m_pJed->CloseFile(nFileHandle);
-		return 0;
-	}
+		return failedToLoad("Unsupported material version for '%ls'.");
 
 	// read the last header (emissive signs and such start at broken, we want the cel with illumination)
 	SMaterialRecordHeader recordHeader;
 	for (uint32_t i = 0; i < materialHeader.nRecordCount; ++i)
 	{
 		if (m_pJed->ReadFile(nFileHandle, &recordHeader, sizeof(SMaterialRecordHeader)) != sizeof(SMaterialRecordHeader))
-		{
-			Jed::PrintMessage(m_pJed, msg_error, "Failed to read material record header from '%ls'.", sFileName);
-			m_pJed->CloseFile(nFileHandle);
-			return 0;
-		}
+			return failedToLoad("Failed to read material record header from '%ls'.");
+
 		if (recordHeader.nTextureType & EMaterialRecordType_Texture)
 		{
 			SMaterialRecordHeaderExt ext;
 			if (m_pJed->ReadFile(nFileHandle, &ext, sizeof(SMaterialRecordHeaderExt)) != sizeof(SMaterialRecordHeaderExt))
-			{
-				Jed::PrintMessage(m_pJed, msg_error, "Failed to read material texture header from '%ls'.", sFileName);
-				m_pJed->CloseFile(nFileHandle);
-				return 0;
-			}
-
-			// TODO: load the texture data to the GPU for reading in the shaders
+				return failedToLoad("Failed to read material texture header from '%ls'.");
 		}
 	}
-	m_materialColorCache.emplace(sFileName, recordHeader.nFillColor);
+
+	SMaterialFillColors colors;
+	const SColorFormat& colorFormat = materialHeader.colorFormat;
+	if (colorFormat.nColorMode == 0) // indexed textures store their fill color index
+	{
+		if (pColormap)
+		{
+			colors.albedo = pColormap->GetColor(recordHeader.nFillColor, -1);
+			colors.emissive = pColormap->GetColor(recordHeader.nFillColor, nEmissiveLightLevel);
+		}
+	}
+	else // RGBA textures could store a fill color but we can't know right now, so find the last mip and average it
+	{
+		colors.albedo = DecodeRGBA8(recordHeader.nFillColor, colorFormat);
+		colors.emissive = {0,0,0,1};
+
+		const uint32_t nBitsPerPixel = colorFormat.nBitsPerPixel;
+		const uint32_t nBytesPerPixel = nBitsPerPixel / 8u;
+
+		if (!nBytesPerPixel || nBitsPerPixel > 32 || (nBitsPerPixel % 8u) != 0)
+			return failedToLoad("Unsupported material pixel format in '%ls'.");
+
+		std::vector<uint8_t> lastMipData;
+		for (uint32_t nTextureIdx = 0; nTextureIdx < materialHeader.nTextureCount; ++nTextureIdx)
+		{
+			SMaterialTextureHeader textureHeader;
+
+			if (m_pJed->ReadFile(nFileHandle, &textureHeader, sizeof(textureHeader)) != sizeof(textureHeader))
+				return failedToLoad("Failed to read material texture header from '%ls'.");
+
+			uint32_t nWidth = textureHeader.nWidth;
+			uint32_t nHeight = textureHeader.nHeight;
+
+			const uint32_t nMipCount = std::min(textureHeader.nNumMipmaps, 4u);
+
+			if (!nMipCount || !nWidth || !nHeight)
+				return failedToLoad("Invalid mipmap count or texture dimensions in '%ls'.");
+
+			for (uint32_t nMipLevel = 0; nMipLevel < nMipCount; ++nMipLevel)
+			{
+				const uint64_t nMipSize = (uint64_t)nWidth * nHeight * nBytesPerPixel;
+				if (nMipSize > std::numeric_limits<size_t>::max())
+					return failedToLoad("Material mipmap is too large in '%ls'.");
+
+				std::vector<uint8_t> mipData((size_t)nMipSize);
+
+				if (m_pJed->ReadFile(nFileHandle, mipData.data(), mipData.size()) != mipData.size())
+					return failedToLoad("Failed to read material texture data from '%ls'.");
+
+				if (nMipLevel == nMipCount - 1)
+					lastMipData.swap(mipData);
+
+				nWidth = std::max(1u, nWidth >> 1);
+				nHeight = std::max(1u, nHeight >> 1);
+			}
+		}
+
+		if (!lastMipData.empty())
+		{
+			const size_t nPixelCount = lastMipData.size() / nBytesPerPixel;
+
+			// todo: GPU average this or maybe try to be more SIMD friendly?
+			float4 avg = {0, 0, 0, 0};
+			for (size_t i = 0; i < nPixelCount; ++i)
+			{
+				uint32_t encoded = 0;
+				memcpy(&encoded, lastMipData.data() + i * nBytesPerPixel, nBytesPerPixel);
+				avg += DecodeRGBA8(encoded, colorFormat);
+			}
+
+			if (nPixelCount)
+				avg /= (float)nPixelCount;
+			
+			colors.albedo = avg;
+			if (nEmissiveLightLevel >= 0)
+				colors.emissive = avg * ((float)nEmissiveLightLevel / 64.0f);
+		}
+	}
 
 	m_pJed->CloseFile(nFileHandle);
 
-	return recordHeader.nFillColor;
+	auto [materialIt, inserted] = m_materialColorCache.emplace(sFileName, colors);
+	return materialIt->second;
 }
 
 bool CLightBakerDlg::CleavePrepass(bool bWarnUser)

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "float3.h"
+
 struct int4
 {
 	int x, y, z, w;
@@ -8,13 +10,20 @@ struct int4
 // 4 component vector
 struct float4
 {
+	union {float x; float r;};
+	union {float y; float g;};
+	union {float z; float b;};
+	union {float w; float a;};
+
 	constexpr float4() {}
 	constexpr float4(float x, float y, float z, float w) : x(x), y(y), z(z), w(w) {}
+	constexpr float4(float3 xyz, float w = 1.0f) { x = xyz.x; y = xyz.y; z = xyz.z; this->w = w; }
 
-	float x;
-	float y;
-	float z;
-	float w;
+	float4 operator-() const
+	{
+		return float4(-x, -y, -z, -w);
+	}
+
 
 	float4& operator+=(float other)
 	{
@@ -59,6 +68,25 @@ struct float4
 		y *= scale;
 		z *= scale;
 		w *= scale;
+		return *this;
+	}
+
+	float4& operator/=(const float4& other)
+	{
+		x /= other.x;
+		y /= other.y;
+		z /= other.z;
+		w /= other.w;
+		return *this;
+	}
+
+	float4& operator/=(float scale)
+	{
+		float invScale = 1.0f / scale;
+		x *= invScale;
+		y *= invScale;
+		z *= invScale;
+		w *= invScale;
 		return *this;
 	}
 };
