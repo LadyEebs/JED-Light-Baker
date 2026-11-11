@@ -60,7 +60,7 @@ uint4 SampleTextureRGBA(int hDescriptorHandle, float2 uv, bool bIsAlbedo)
 		{
 			pixel = aLightLevels[pixel];
 		}
-		return DecodeColormapPixel(pixel);
+		return DecodeColormapPixel(aColormap[pixel]);
 	}
 	
 	// otherwise it's a texture
