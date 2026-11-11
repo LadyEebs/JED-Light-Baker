@@ -946,17 +946,17 @@ void CLightBakerDlg::BuildGeometry()
 				float4 emissive = { 0,0,0,1.0f };
 				if (pColormap)
 				{
-					int emissiveLightLevel = 0;
+					int nEmissiveLightLevel = 0;
 
 					// use the light level so we can gracefully go back to 0 and still use regular emissives
 					if (m_nBakeFlags & ELightBake_ExtraLightEmissive)
-						emissiveLightLevel = int(std::min(std::max((float)surface.extralight, 0.0f), 1.0f) * 63.0f);
+						nEmissiveLightLevel = int(std::min(std::max((float)surface.extralight, 0.0f), 1.0f) * 63.0f);
 
 					// if we are forced to be emissive, then use fullbright
 					if (surface.faceflags & EFace_ForceEmissive)
-						emissiveLightLevel = -1;
+						nEmissiveLightLevel = -1;
 
-					const SMaterialFillColors colors = LoadMaterialFillColor(surface.material, pColormap, emissiveLightLevel);
+					const SMaterialFillColors colors = LoadMaterialFillColor(surface.material, pColormap, nEmissiveLightLevel);
 					albedo = colors.albedo;
 					emissive = colors.emissive;
 					if (m_nBakeFlags & ELightBake_GammaCorrect)
@@ -1525,6 +1525,10 @@ SMaterialFillColors CLightBakerDlg::LoadMaterialFillColor(const wchar_t* sFileNa
 		{
 			colors.albedo = pColormap->GetColor(recordHeader.nFillColor, -1);
 			colors.emissive = pColormap->GetColor(recordHeader.nFillColor, nEmissiveLightLevel);
+		}
+		else
+		{
+			return failedToLoad("Material '%ls' is indexed but no colormap was provided.");
 		}
 	}
 	else // RGBA textures could store a fill color but we can't know right now, so find the last mip and average it

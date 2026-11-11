@@ -22,7 +22,8 @@ namespace Jed
 	{
 		tjedsurfacerec surface;
 		memset(&surface, 0, sizeof(tjedsurfacerec));
-		pJedLevel->GetSurface(nSectorIndex, nSurfaceIndex, &surface, sf_Material | sf_adjoin | sf_adjoinflags | sf_geo | sf_SurfFlags | sf_FaceFlags);
+		if (FAILED(pJedLevel->GetSurface(nSectorIndex, nSurfaceIndex, &surface, sf_Material | sf_adjoin | sf_adjoinflags | sf_geo | sf_SurfFlags | sf_FaceFlags)))
+			return false;
 
 		// ignore geo mode 0 (not visible) and surfaces with no material
 		if (surface.geo == 0 || !surface.material)
