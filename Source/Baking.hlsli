@@ -390,7 +390,8 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 		const float distanceInSector = max(0.0, dot(hitPos - start, rayDirection));
 		if (aSectors[nCurrentSector].nFlags & EGpuSector_IsWater)
 		{
-			const float4 waterAbsorption = exp(-aSectors[nCurrentSector].tint * distanceInSector);
+			const float4 tint = clamp(aSectors[nCurrentSector].tint, 0.001, 1.0);
+			const float4 waterAbsorption = pow(tint, distanceInSector);//exp(-(-log(tint) * distanceInSector));
 			payload.attenuation *= waterAbsorption;
 		}
 
@@ -414,7 +415,11 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 			return true;
 		}
 				
-		if (nSurfaceFlags & EGpuSurface_IsVisible)
+		const bool bCurrentWater = (aSectors[nCurrentSector].nFlags & EGpuSector_IsWater) != 0;
+		const bool bAdjoinWater = (aSectors[nAdjoinSector].nFlags & EGpuSector_IsWater) != 0;
+
+		// don't apply surface absorption when either side is water since water already attenuates the ray
+		if ((nSurfaceFlags & EGpuSurface_IsVisible) && !bCurrentWater && !bAdjoinWater)
 		{
 			const bool bTranslucent = (nSurfaceFlags & EGpuSurface_IsTranslucent) != 0;
 			const float surfaceAlpha = bTranslucent ? kSurfaceAlpha : 1.0;
