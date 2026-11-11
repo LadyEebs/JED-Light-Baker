@@ -35,6 +35,9 @@ static const uint ELight_Ambient    = 0x20;
 
 static const float kSkyDistance = 512.0;
 
+static const float kJKUToMeters = 10.0f;
+static const float kMetersToJKU = 1.0f / kJKUToMeters;
+
 // standard JK alpha value
 static const float kSurfaceAlpha = 90.0/255.0;
 
@@ -390,7 +393,9 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 		const float distanceInSector = max(0.0, dot(hitPos - start, rayDirection));
 		if (aSectors[nCurrentSector].nFlags & EGpuSector_IsWater)
 		{
-			const float4 waterAbsorption = exp(-aSectors[nCurrentSector].tint * distanceInSector);
+			const float4 tint = clamp(aSectors[nCurrentSector].tint, 0.001, 1.0);
+			// the distance is clamped so we settle on the final tint color and don't over darken
+			const float4 waterAbsorption = pow(tint, saturate(distanceInSector * kJKUToMeters));
 			payload.attenuation *= waterAbsorption;
 		}
 
@@ -414,6 +419,9 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 			return true;
 		}
 				
+		const bool bCurrentWater = (aSectors[nCurrentSector].nFlags & EGpuSector_IsWater) != 0;
+		const bool bAdjoinWater = (aSectors[nAdjoinSector].nFlags & EGpuSector_IsWater) != 0;
+
 		if (nSurfaceFlags & EGpuSurface_IsVisible)
 		{
 			const bool bTranslucent = (nSurfaceFlags & EGpuSurface_IsTranslucent) != 0;
@@ -424,7 +432,10 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 			// weight local surface terms by the throughput that arrived at this surface
 			payload.reflection += surface.albedo * surfaceLight * surfaceWeight;
 			payload.emissive += surface.emissive * surfaceWeight;
-			payload.attenuation *= surface.albedo * surfaceAlpha + (1.0 - surfaceAlpha);
+			
+			// don't apply surface absorption when either side is water since water already attenuates the ray
+			if (!bCurrentWater && !bAdjoinWater)
+				payload.attenuation *= surface.albedo * surfaceAlpha + (1.0 - surfaceAlpha);
 		}
 
 		// continue just beyond the portal plane in the same ray direction
