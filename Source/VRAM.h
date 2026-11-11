@@ -67,6 +67,7 @@ struct SSurfaceFormat
 };
 
 // Texture descriptor, describes a texture living in the vram buffer
+// NOTE: This is a GPU struct
 struct SVRAMDescriptor
 {
 	SVRAMDescriptor(const SSurfaceFormat* pSurfaceFormat, uint32_t nOffset, uint32_t nSize)

@@ -1672,7 +1672,6 @@ SMaterial* CLightBakerDlg::LoadMaterial(const wchar_t* sFileName, const SColorma
 				m_pJed->CloseFile(nFileHandle);
 				return nullptr;
 			}
-			break;
 
 			nWidth >>= 1;
 			nHeight >>= 1;
