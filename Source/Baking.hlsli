@@ -438,8 +438,6 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 				payload.attenuation *= surface.albedo * surfaceAlpha + (1.0 - surfaceAlpha);
 		}
 
-		// continue just beyond the portal plane in the same ray direction
-		start = hitPos - rayDirection * kRayBias;
 		nCurrentSector = nAdjoinSector;
 	}
 		

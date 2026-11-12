@@ -43,6 +43,7 @@ enum EGpuSurfaceFlags
 enum ESectorFlags
 {
 	ESector_UnderWater = 0x2,
+	ESector_Pit = 0x40,
 
 	// SED specific
 	ESector_NoAmbientLightRGB = 0x20000000,
