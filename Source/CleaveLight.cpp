@@ -7,12 +7,11 @@ namespace
 {
 	constexpr int kMaxGeometryDepth = 25;
 	constexpr float kPointLightsize = 0.0075f;
-	constexpr double kCloseEnough = 10e-5; // match JED
 
 	static int GetMark(const SPolygon& polygon, const SPlane& plane, int i)
 	{
 		const double d = distance(plane, polygon.vertices[i]);
-		if (std::fabs(d) < kCloseEnough)
+		if (std::fabs(d) < CloseEnough)
 			return 0;
 		return d > 0.0 ? 1 : -1;
 	}
@@ -332,7 +331,7 @@ bool CCleaveLight::CanSplit(const SPolygon& polygon, const SPlane& plane) const
 		if (!std::isfinite(d))
 			return false;
 
-		if (std::fabs(d) >= kCloseEnough)
+		if (std::fabs(d) >= CloseEnough)
 		{
 			bPositive |= d > 0.0;
 			bNegative |= d < 0.0;
