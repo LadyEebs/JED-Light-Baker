@@ -33,10 +33,10 @@ static const uint ELight_Anchor     = 0x8;
 static const uint ELight_SpotLight  = 0x10;
 static const uint ELight_Ambient    = 0x20;
 
-static const float kSkyDistance = 512.0;
-
+// units
 static const float kJKUToMeters = 10.0f;
 static const float kMetersToJKU = 1.0f / kJKUToMeters;
+static const float kSkyDistance = 512.0; // JKU
 
 // standard JK alpha value
 static const float kSurfaceAlpha = 90.0/255.0;
@@ -47,13 +47,15 @@ static const float kRayBias = -1e-4;
 // maximum number of adjoins to cross for a given ray (puts an upper bound on recursions for safety)
 static const int kMaxRecursion = 256; // should be more than enough?
 
+// physics constants
+static const float kWaterIOR = 1.333;
 static const float kPi = 3.14159265358979323846;
 
 // Ray payload, filled on hit
 struct SRayPayload
 {
 	float4 attenuation; // remaining transmission through crossed surfaces
-	float4 reflection; // accumulated diffuse bounce / caustic approximation
+	float4 reflection; // accumulated diffuse bounce
 	float4 emissive; // accumulated emission from crossed surfaces
 	float3 hitPos;
 	int nHitSurfaceIndex; // final surface only, -1 when the ray escapes or hits nothing
@@ -338,18 +340,21 @@ bool IsSurfCrossed(int nSurfaceIndex, float3 start, float3 end, inout float3 hit
 }
 
 // Test all the surfaces in a sector, return true if something was hit as well as hit position and surface index
-bool TraceSurfaces(int nSectorIndex, float3 start, float3 end, inout float3 hitPos, inout int nHitSurfaceIndex)
+bool TraceSurfaces(int nSectorIndex, float3 start, float3 end, int nIgnoredSurfaceIndex, inout float3 hitPos, inout int nHitSurfaceIndex)
 {
 	bool bResult = false;
 
 	const uint nFirstSurface = aSectors[nSectorIndex].nFirstSurface;
-	const uint nLastSurface  = nFirstSurface + aSectors[nSectorIndex].nNumSurfaces;
+	const uint nLastSurface = nFirstSurface + aSectors[nSectorIndex].nNumSurfaces;
 
 	[loop]
 	for (uint nSurfaceIndex = nFirstSurface; nSurfaceIndex < nLastSurface; ++nSurfaceIndex)
 	{
+		if (nIgnoredSurfaceIndex >= 0 && nSurfaceIndex == (uint) nIgnoredSurfaceIndex)
+			continue;
+
 		const float3 normal = aSurfaces[nSurfaceIndex].normal.xyz;
-		const float dotVal  = dot(normal, end - start);
+		const float dotVal = dot(normal, end - start);
 		if (dotVal < 0)
 		{
 			if (IsSurfCrossed(nSurfaceIndex, start, end, hitPos))
@@ -371,31 +376,40 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 	payload.hitPos = end;
 	payload.nHitSurfaceIndex = -1;
 
-	const float3 rayDelta = end - start;
+	float3 rayStart = start;
+	float3 rayEnd = end;
+
+	const float3 rayDelta = rayEnd - rayStart;
 	const float rayLengthSqr = dot(rayDelta, rayDelta);
 	if (rayLengthSqr <= 1e-12)
 		return false;
 
-	const float3 rayDirection = rayDelta * rsqrt(rayLengthSqr);
+	float3 rayDirection = rayDelta * rsqrt(rayLengthSqr);
+	float distanceTraveled = 0.0;
 	int nCurrentSector = nSectorIndex;
-
+	int nIgnoredSurfaceIndex = -1;
+	
 	[loop]
 	for (int nRecurseLevel = 0; nRecurseLevel < kMaxRecursion; ++nRecurseLevel)
 	{
 		if (nCurrentSector < 0 || nCurrentSector >= g_levelInfo.nTotalSectors)
 			return false;
 
-		float3 hitPos = start;
+		float3 hitPos = rayStart;
 		int nHitSurfaceIndex = -1;
-		if (!TraceSurfaces(nCurrentSector, start, end, hitPos, nHitSurfaceIndex))
+		if (!TraceSurfaces(nCurrentSector, start, end, nIgnoredSurfaceIndex, hitPos, nHitSurfaceIndex))
 			return false;
 		
-		const float distanceInSector = max(0.0, dot(hitPos - start, rayDirection));
+		// reset
+		nIgnoredSurfaceIndex = -1;
+		
+		const float distanceInSector = max(0.0, dot(hitPos - rayStart, rayDirection));
+		distanceTraveled += distanceInSector;
 		if (aSectors[nCurrentSector].nFlags & EGpuSector_IsWater)
 		{
 			const float4 tint = clamp(aSectors[nCurrentSector].tint, 0.001, 1.0);
 			// the distance is clamped so we settle on the final tint color and don't over darken
-			const float4 waterAbsorption = pow(tint, saturate(distanceInSector * kJKUToMeters));
+			const float4 waterAbsorption = pow(tint, saturate(distanceTraveled * kJKUToMeters));
 			payload.attenuation *= waterAbsorption;
 		}
 
@@ -418,9 +432,11 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 			payload.nHitSurfaceIndex = nHitSurfaceIndex;
 			return true;
 		}
-				
+
 		const bool bCurrentWater = (aSectors[nCurrentSector].nFlags & EGpuSector_IsWater) != 0;
 		const bool bAdjoinWater = (aSectors[nAdjoinSector].nFlags & EGpuSector_IsWater) != 0;
+		const bool bEnteringWater = !bCurrentWater && bAdjoinWater;
+		const bool bExitingWater = bCurrentWater && !bAdjoinWater;
 
 		if (nSurfaceFlags & EGpuSurface_IsVisible)
 		{
@@ -432,11 +448,42 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 			// weight local surface terms by the throughput that arrived at this surface
 			payload.reflection += surface.albedo * surfaceLight * surfaceWeight;
 			payload.emissive += surface.emissive * surfaceWeight;
-			
+
 			// don't apply surface absorption when either side is water since water already attenuates the ray
 			if (!bCurrentWater && !bAdjoinWater)
 				payload.attenuation *= surface.albedo * surfaceAlpha + (1.0 - surfaceAlpha);
 		}
+
+		// preserve the remaining ray distance before changing its direction
+		const float remainingDistance = max(0.0, dot(rayEnd - hitPos, rayDirection));
+
+		if (bEnteringWater || bExitingWater)
+		{
+			// refract expects its normal to oppose the incident ray
+			float3 normal = normalize(surface.normal);
+			if (dot(rayDirection, normal) > 0.0)
+				normal = -normal;
+
+			const float eta = bEnteringWater ? (1.0 / kWaterIOR) : kWaterIOR;
+			const float3 refractedDirection = refract(rayDirection, normal, eta);
+
+			// total internal reflection
+			if (dot(refractedDirection, refractedDirection) <= 1e-12)
+			{
+				// stay in the current sector
+				rayDirection = reflect(rayDirection, normal);
+				rayStart = hitPos - rayDirection * kRayBias;
+				rayEnd = hitPos + rayDirection * remainingDistance;
+				nIgnoredSurfaceIndex = nHitSurfaceIndex;
+				continue;
+			}
+
+			rayDirection = normalize(refractedDirection);
+		}
+
+		// keep the origin just outside the adjoining sector
+		rayStart = hitPos - rayDirection * kRayBias;
+		rayEnd = hitPos + rayDirection * remainingDistance;
 
 		nCurrentSector = nAdjoinSector;
 	}
