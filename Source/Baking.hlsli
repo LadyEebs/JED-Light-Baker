@@ -456,11 +456,10 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 
 		// preserve the remaining ray distance before changing its direction
 		const float remainingDistance = max(0.0, dot(rayEnd - hitPos, rayDirection));
-
 		if (bEnteringWater || bExitingWater)
 		{
 			// refract expects its normal to oppose the incident ray
-			float3 normal = normalize(surface.normal);
+			float3 normal = normalize(surface.normal.xyz);
 			if (dot(rayDirection, normal) > 0.0)
 				normal = -normal;
 
