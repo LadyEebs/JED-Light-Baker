@@ -4,7 +4,7 @@ JED/SED Light Baker Plugin. Bakes lighting using crude/simple GPU accelerated ra
 <img width="908" height="661" alt="image" src="https://github.com/user-attachments/assets/211b525c-06d6-44f1-b367-4fbaf3caa0ff" />
 
 # Requirements
-- A Jed 0.951 compatible level editor (JED/ZEDNJED/SED)
+- A Jed 0.951 compatible level editor (JED/ZED/NJED/SED)
 - A copy of Jedi Knight/Mysteries of the Sith/Indiana Jones and the Infernal Machine
 - A DX11 Capable PC
 
