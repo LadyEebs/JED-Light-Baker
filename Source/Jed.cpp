@@ -25,8 +25,13 @@ namespace Jed
 		if (FAILED(pJedLevel->GetSurface(nSectorIndex, nSurfaceIndex, &surface, sf_Material | sf_adjoin | sf_adjoinflags | sf_geo | sf_SurfFlags | sf_FaceFlags)))
 			return false;
 
-		// ignore geo mode 0 (not visible) and surfaces with no material
-		if (surface.geo == 0 || !surface.material)
+		// ignore surfaces with no material
+		if (!surface.material)
+			return false;
+
+		// ignore geo mode 0 (not visible)
+		// exception: if the surface is not visible and an adjoin, and it's set to force emissive, let it be visible to the baker
+		if (surface.geo == 0 && !(surface.adjoinsc >= 0 && (surface.faceflags & EFace_ForceEmissive)))
 			return false;
 
 		// ignore adjoins that block
