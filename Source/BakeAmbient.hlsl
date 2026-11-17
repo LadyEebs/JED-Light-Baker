@@ -56,9 +56,10 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 		// always using linear falloff
 		float atten = (aLights[nLightIndex].range - dist) / aLights[nLightIndex].range;
 		atten *= atten;
-		color *= atten;
-				
-		localAcc *= color;
+
+		// fade the multiplier from the light's color at its center to 1 (no change) at its range,
+		// rather than to 0, which turned everything black just inside the range
+		localAcc *= lerp(float4(1, 1, 1, 1), color, atten);
 	}
 
 	// write the result to shared memory
