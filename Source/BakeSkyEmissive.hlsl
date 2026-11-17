@@ -25,7 +25,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 		const float3 rayTarget = kSkyDistance * rayDir + vertexData.vertex;
 
 		SRayPayload payload = (SRayPayload)0;
-		bool bRayHit = TraceRay(payload, vertexData.nSectorIndex, vertexData.vertex + rayDir * kRayBias, rayTarget);
+		bool bRayHit = TraceRay(payload, vertexData.nSectorIndex, vertexData.vertex + rayDir * kRayBias, rayTarget, true);
 		
 		// emission on crossed surfaces is independent of a later hit
 		if (g_levelInfo.nBakeFlags & ELightBake_Emissive)

@@ -45,7 +45,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 		{		
 			if (nLightSectorIndex != vertexData.nSectorIndex)
 			{
-				bool bRayHit = TraceRay(payload, vertexData.nSectorIndex, vertexData.vertex + lightDir * kRayBias, aLights[nLightIndex].position.xyz);
+				bool bRayHit = TraceRay(payload, vertexData.nSectorIndex, vertexData.vertex + lightDir * kRayBias, aLights[nLightIndex].position.xyz, false);
 				if (bRayHit && payload.nHitSurfaceIndex >= 0 && (aSurfaces[payload.nHitSurfaceIndex].nFlags & EGpuSurface_BlocksLight))
 					continue;
 			}

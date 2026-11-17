@@ -25,7 +25,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 		const float3 rayTarget = kSkyDistance * rayDir + vertexData.vertex;
 
 		SRayPayload payload = (SRayPayload)0;
-		const bool bRayHit = TraceRay(payload, vertexData.nSectorIndex, vertexData.vertex + rayDir * kRayBias, rayTarget);
+		const bool bRayHit = TraceRay(payload, vertexData.nSectorIndex, vertexData.vertex + rayDir * kRayBias, rayTarget, true);
 	
 		// crossed-adjoin contributions are valid even if the ray later escapes
 		float4 rayLight = payload.reflection;

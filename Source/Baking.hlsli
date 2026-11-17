@@ -44,6 +44,10 @@ static const float kSurfaceAlpha = 90.0/255.0;
 // bias the ray along the ray dir to avoid self intersection or stuff like that
 static const float kRayBias = -1e-4;
 
+// how far behind a bend the redirected ray's test segment starts, so it begins outside the sector like the
+// original segment does (starting right at the bend lets rays slip past adjoin corners)
+static const float kTraceBackoff = 1.0; // JKU
+
 // maximum number of adjoins to cross for a given ray (puts an upper bound on recursions for safety)
 static const int kMaxRecursion = 256; // should be more than enough?
 
@@ -368,7 +372,11 @@ bool TraceSurfaces(int nSectorIndex, float3 start, float3 end, int nIgnoredSurfa
 	return bResult;
 }
 
-bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 end)
+// Trace a ray through the adjoins from start to end.
+// bRefract bends the ray where it enters or leaves water, with total internal reflection. Pass true for rays that
+// gather light from a sampled direction (sky, emissive, indirect) and false for rays that test visibility between
+// two fixed points (point, ambient and sun lights), which a bent ray would no longer connect.
+bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 end, bool bRefract)
 {
 	payload.attenuation = float4(1, 1, 1, 1);
 	payload.reflection = float4(0, 0, 0, 0);
@@ -378,6 +386,10 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 
 	float3 rayStart = start;
 	float3 rayEnd = end;
+
+	// the segment tested against each sector's surfaces: the whole original segment until the ray bends
+	float3 traceStart = start;
+	float3 traceEnd = end;
 
 	const float3 rayDelta = rayEnd - rayStart;
 	const float rayLengthSqr = dot(rayDelta, rayDelta);
@@ -397,7 +409,7 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 
 		float3 hitPos = rayStart;
 		int nHitSurfaceIndex = -1;
-		if (!TraceSurfaces(nCurrentSector, start, end, nIgnoredSurfaceIndex, hitPos, nHitSurfaceIndex))
+		if (!TraceSurfaces(nCurrentSector, traceStart, traceEnd, nIgnoredSurfaceIndex, hitPos, nHitSurfaceIndex))
 			return false;
 		
 		// reset
@@ -456,7 +468,7 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 
 		// preserve the remaining ray distance before changing its direction
 		const float remainingDistance = max(0.0, dot(rayEnd - hitPos, rayDirection));
-		if (bEnteringWater || bExitingWater)
+		if (bRefract && (bEnteringWater || bExitingWater))
 		{
 			// refract expects its normal to oppose the incident ray
 			float3 normal = normalize(surface.normal.xyz);
@@ -473,11 +485,15 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 				rayDirection = reflect(rayDirection, normal);
 				rayStart = hitPos - rayDirection * kRayBias;
 				rayEnd = hitPos + rayDirection * remainingDistance;
+				traceStart = hitPos - rayDirection * kTraceBackoff;
+				traceEnd = rayEnd;
 				nIgnoredSurfaceIndex = nHitSurfaceIndex;
 				continue;
 			}
 
 			rayDirection = normalize(refractedDirection);
+			traceStart = hitPos - rayDirection * kTraceBackoff;
+			traceEnd = hitPos + rayDirection * remainingDistance;
 		}
 
 		// keep the origin just outside the adjoining sector
