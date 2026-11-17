@@ -59,7 +59,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 			float fade = saturate(1.0f - dist / aLights[nLightIndex].range);
 			fade *= fade;
 			atten *= fade;
-			color *= atten * saturate(dot(lightVec, vertexData.normal));
+			color *= atten; // N.L is already in color
 		}
 		else // old'n'busted linear falloff
 		{
