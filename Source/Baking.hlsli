@@ -385,7 +385,7 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 		return false;
 
 	float3 rayDirection = rayDelta * rsqrt(rayLengthSqr);
-	float distanceTraveled = 0.0;
+	float waterDistance = 0.0; // distance through the current body of water
 	int nCurrentSector = nSectorIndex;
 	int nIgnoredSurfaceIndex = -1;
 	
@@ -404,13 +404,21 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 		nIgnoredSurfaceIndex = -1;
 		
 		const float distanceInSector = max(0.0, dot(hitPos - rayStart, rayDirection));
-		distanceTraveled += distanceInSector;
 		if (aSectors[nCurrentSector].nFlags & EGpuSector_IsWater)
 		{
 			const float4 tint = clamp(aSectors[nCurrentSector].tint, 0.001, 1.0);
-			// the distance is clamped so we settle on the final tint color and don't over darken
-			const float4 waterAbsorption = pow(tint, saturate(distanceTraveled * kJKUToMeters));
-			payload.attenuation *= waterAbsorption;
+			// the distance is clamped so we settle on the final tint color and don't over darken.
+			// apply only this sector's share of it, so a body of water split into several sectors
+			// absorbs the same as a single sector
+			const float prevDepth = saturate(waterDistance * kJKUToMeters);
+			waterDistance += distanceInSector;
+			const float depth = saturate(waterDistance * kJKUToMeters);
+			payload.attenuation *= pow(tint, depth - prevDepth);
+		}
+		else
+		{
+			// out of the water: the next body of water absorbs on its own
+			waterDistance = 0.0;
 		}
 
 		const SSurface surface = aSurfaces[nHitSurfaceIndex];
