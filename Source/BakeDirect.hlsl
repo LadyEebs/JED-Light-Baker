@@ -40,7 +40,6 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 			continue;
 			
 		SRayPayload payload = (SRayPayload)0;
-		payload.attenuation = float4(1, 1, 1, 1);
 		if (!(aLights[nLightIndex].nFlags & ELight_NotBlocked))
 		{		
 			if (nLightSectorIndex != vertexData.nSectorIndex)
@@ -51,7 +50,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 			}
 		}
 
-		float4 color = aLights[nLightIndex].color * payload.attenuation * ndotl;
+		float4 color = aLights[nLightIndex].color * exp(payload.transmission) * ndotl;
 
 		if (g_levelInfo.nBakeFlags & ELightBake_PhysicalFalloff) // new hotness hybrid with inverse square falloff
 		{

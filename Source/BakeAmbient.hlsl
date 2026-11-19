@@ -41,7 +41,6 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 		const float dist = sqrt(dist2);
 
 		SRayPayload payload = (SRayPayload) 0;
-		payload.attenuation = float4(1, 1, 1, 1);
 		if (!(aLights[nLightIndex].nFlags & ELight_NotBlocked))
 		{
 			if (nLightSectorIndex != vertexData.nSectorIndex)
@@ -52,7 +51,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 			}
 		}
 
-		float4 color = aLights[nLightIndex].color * payload.attenuation;
+		float4 color = aLights[nLightIndex].color * exp(payload.transmission);
 		// always using linear falloff
 		float atten = (aLights[nLightIndex].range - dist) / aLights[nLightIndex].range;
 		atten *= atten;

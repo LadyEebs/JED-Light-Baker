@@ -54,7 +54,7 @@ static const float kPi = 3.14159265358979323846;
 // Ray payload, filled on hit
 struct SRayPayload
 {
-	float4 attenuation; // remaining transmission through crossed surfaces
+	float4 transmission; // transmission through crossed surfaces
 	float4 reflection; // accumulated diffuse bounce
 	float4 emissive; // accumulated emission from crossed surfaces
 	float3 hitPos;
@@ -370,7 +370,7 @@ bool TraceSurfaces(int nSectorIndex, float3 start, float3 end, int nIgnoredSurfa
 
 bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 end)
 {
-	payload.attenuation = float4(1, 1, 1, 1);
+	payload.transmission = float4(0, 0, 0, 0);
 	payload.reflection = float4(0, 0, 0, 0);
 	payload.emissive = float4(0, 0, 0, 0);
 	payload.hitPos = end;
@@ -385,7 +385,6 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 		return false;
 
 	float3 rayDirection = rayDelta * rsqrt(rayLengthSqr);
-	float distanceTraveled = 0.0;
 	int nCurrentSector = nSectorIndex;
 	int nIgnoredSurfaceIndex = -1;
 	
@@ -404,13 +403,10 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 		nIgnoredSurfaceIndex = -1;
 		
 		const float distanceInSector = max(0.0, dot(hitPos - rayStart, rayDirection));
-		distanceTraveled += distanceInSector;
 		if (aSectors[nCurrentSector].nFlags & EGpuSector_IsWater)
 		{
 			const float4 tint = clamp(aSectors[nCurrentSector].tint, 0.001, 1.0);
-			// the distance is clamped so we settle on the final tint color and don't over darken
-			const float4 waterAbsorption = pow(tint, saturate(distanceTraveled * kJKUToMeters));
-			payload.attenuation *= waterAbsorption;
+			payload.transmission += log(tint) * (distanceInSector * kJKUToMeters);
 		}
 
 		const SSurface surface = aSurfaces[nHitSurfaceIndex];
@@ -442,7 +438,7 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 		{
 			const bool bTranslucent = (nSurfaceFlags & EGpuSurface_IsTranslucent) != 0;
 			const float surfaceAlpha = bTranslucent ? kSurfaceAlpha : 1.0;
-			const float4 surfaceWeight = payload.attenuation * surfaceAlpha;
+			const float4 surfaceWeight = exp(payload.transmission) * surfaceAlpha;
 			const float4 surfaceLight = InterpolateSurfaceLight(nHitSurfaceIndex, hitPos);
 
 			// weight local surface terms by the throughput that arrived at this surface
@@ -451,7 +447,7 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 
 			// don't apply surface absorption when either side is water since water already attenuates the ray
 			if (!bCurrentWater && !bAdjoinWater)
-				payload.attenuation *= surface.albedo * surfaceAlpha + (1.0 - surfaceAlpha);
+				payload.transmission += log(max(surface.albedo * surfaceAlpha + (1.0 - surfaceAlpha), 0.001));
 		}
 
 		// preserve the remaining ray distance before changing its direction

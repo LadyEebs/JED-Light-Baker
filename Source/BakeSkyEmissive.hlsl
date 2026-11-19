@@ -45,15 +45,15 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
                 // for ceiling skies, attenuate by angle to the ceiling plane (which is always pointing straight down)
                 if (hitFlags & EGpuSurface_IsCeilingSky)
                 {
-                    payload.attenuation *= saturate(rayDir.z * 100.0);
-                }
+					color *= saturate(rayDir.z * 100.0);
+				}
 			}
 			else if((g_levelInfo.nBakeFlags & ELightBake_Emissive) && (hitFlags & EGpuSurface_IsVisible))
 			{
 				color = aSurfaces[payload.nHitSurfaceIndex].emissive;
 			}
 
-			localAcc += color * payload.attenuation;
+			localAcc += color * exp(payload.transmission);
 		}
 	}
 

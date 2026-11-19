@@ -33,7 +33,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 		if (bRayHit && payload.nHitSurfaceIndex >= 0 && (aSurfaces[payload.nHitSurfaceIndex].nFlags & EGpuSurface_BlocksLight))
 		{
 			const float4 surfaceLight = InterpolateSurfaceLight(payload.nHitSurfaceIndex, payload.hitPos);
-			rayLight += aSurfaces[payload.nHitSurfaceIndex].albedo * surfaceLight * payload.attenuation;
+			rayLight += aSurfaces[payload.nHitSurfaceIndex].albedo * surfaceLight * exp(payload.transmission);
 		}
 
 		localAcc += rayLight;

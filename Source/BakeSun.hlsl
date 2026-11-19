@@ -19,7 +19,6 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID)
 	if (ndotl > 0)
 	{
 		SRayPayload payload = (SRayPayload) 0;
-		payload.attenuation = float4(1, 1, 1, 1);
 
 		bool bRayHit = TraceRay(payload, vertexData.nSectorIndex, vertexData.vertex + rayDir * kRayBias, rayTarget);
 		if (bRayHit && (aSurfaces[payload.nHitSurfaceIndex].nFlags & EGpuSurface_IsSky))
@@ -30,7 +29,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID)
 			if (hitFlags & EGpuSurface_IsCeilingSky)
 				attenuation = saturate(rayDir.z * 100.0);
 
-			color = aLights[g_levelInfo.nSunLightIndex].color * payload.attenuation * (ndotl * attenuation);
+			color = aLights[g_levelInfo.nSunLightIndex].color * exp(payload.transmission) * (ndotl * attenuation);
 		}
 	}
 	
