@@ -67,8 +67,9 @@ The baker flags all linked surfaces as cog linked before baking. This has no eff
 - Smooth normals for curved surfaces
 
 # Limitations
-Materials currently rely on their solid fill color field to supply surface color for GI tracing.
-For 8 bit materials, this is supported in Mat Master. For 16 bit or others, only Mat 16 1.4.3 and later support this. Older 16 bit mats will not generate bounced light or emission until resaved.
+- Materials rely on their solid fill color field to supply surface color for GI tracing. This is intentional as fully textured light bouncing and emission is too high frequency for vertex lighting.
+- 16 bit materials do not reliably contain a fill color, so they are averaged on first load - this could slow the baker down on the first bake (or after clearing the resource cache).
+- Emission must be forced with flag 0x40000000 to enable emission on 16 bit mats for the time being.
 
 # Contributions
 ## Issue Tracker
