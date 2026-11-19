@@ -20,7 +20,7 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID)
 	{
 		SRayPayload payload = (SRayPayload) 0;
 
-		bool bRayHit = TraceRay(payload, vertexData.nSectorIndex, vertexData.vertex + rayDir * kRayBias, rayTarget);
+		bool bRayHit = TraceShadow(payload, vertexData.nSectorIndex, vertexData.vertex + rayDir * kRayBias, rayTarget);
 		if (bRayHit && (aSurfaces[payload.nHitSurfaceIndex].nFlags & EGpuSurface_IsSky))
 		{
 			const uint hitFlags = aSurfaces[payload.nHitSurfaceIndex].nFlags;

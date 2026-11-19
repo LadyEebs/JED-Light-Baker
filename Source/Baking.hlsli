@@ -396,7 +396,7 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 
 		float3 hitPos = rayStart;
 		int nHitSurfaceIndex = -1;
-		if (!TraceSurfaces(nCurrentSector, start, end, nIgnoredSurfaceIndex, hitPos, nHitSurfaceIndex))
+		if (!TraceSurfaces(nCurrentSector, rayStart, rayEnd, nIgnoredSurfaceIndex, hitPos, nHitSurfaceIndex))
 			return false;
 		
 		// reset
@@ -483,6 +483,81 @@ bool TraceRay(inout SRayPayload payload, int nSectorIndex, float3 start, float3 
 		nCurrentSector = nAdjoinSector;
 	}
 		
+	// if we reach here it's because we don't have a surface hit/we exhausted the traversal
+	// the accumulators can still be valid in this case so return true to indicate a valid payload	
+	return true;
+}
+
+bool TraceShadow(inout SRayPayload payload, int nSectorIndex, float3 start, float3 end)
+{
+	payload.transmission = float4(0, 0, 0, 0);
+	payload.hitPos = end;
+	payload.nHitSurfaceIndex = -1;
+
+	const float3 rayDelta = end - start;
+	const float rayLengthSqr = dot(rayDelta, rayDelta);
+	if (rayLengthSqr <= 1e-12)
+		return false;
+
+	const float3 rayDirection = rayDelta * rsqrt(rayLengthSqr);
+	float distanceTraveled = 0.0;
+	int nCurrentSector = nSectorIndex;
+
+	[loop]
+	for (int nRecurseLevel = 0; nRecurseLevel < kMaxRecursion; ++nRecurseLevel)
+	{
+		if (nCurrentSector < 0 || nCurrentSector >= g_levelInfo.nTotalSectors)
+			return false;
+
+		float3 hitPos = start;
+		int nHitSurfaceIndex = -1;
+		if (!TraceSurfaces(nCurrentSector, start, end, -1, hitPos, nHitSurfaceIndex))
+			return false;
+
+		const float distanceToHit = max(distanceTraveled, dot(hitPos - start, rayDirection));
+		const float distanceInSector = distanceToHit - distanceTraveled;
+		distanceTraveled = distanceToHit;
+
+		if (aSectors[nCurrentSector].nFlags & EGpuSector_IsWater)
+		{
+			const float4 tint = clamp(aSectors[nCurrentSector].tint, 0.001, 1.0);
+			payload.transmission += log(tint) * (distanceInSector * kJKUToMeters);
+		}
+
+		const SSurface surface = aSurfaces[nHitSurfaceIndex];
+		const int nAdjoinSector = surface.nAdjoinSector;
+
+		// a surface with no adjoin is a solid hit
+		// the lighting is evaluated by the calling bake pass using the remaining transmission
+		if (nAdjoinSector < 0)
+		{
+			payload.hitPos = hitPos;
+			payload.nHitSurfaceIndex = nHitSurfaceIndex;
+			return true;
+		}
+
+		const uint nSurfaceFlags = surface.nFlags;
+		if (nSurfaceFlags & EGpuSurface_BlocksLight)
+		{
+			payload.hitPos = hitPos;
+			payload.nHitSurfaceIndex = nHitSurfaceIndex;
+			return true;
+		}
+
+		const bool bCurrentWater = (aSectors[nCurrentSector].nFlags & EGpuSector_IsWater) != 0;
+		const bool bAdjoinWater = (aSectors[nAdjoinSector].nFlags & EGpuSector_IsWater) != 0;
+
+		// don't apply surface absorption when either side is water since water already attenuates the ray
+		if ((nSurfaceFlags & EGpuSurface_IsVisible) && !bCurrentWater && !bAdjoinWater)
+		{
+			const bool bTranslucent = (nSurfaceFlags & EGpuSurface_IsTranslucent) != 0;
+			const float surfaceAlpha = bTranslucent ? kSurfaceAlpha : 1.0;
+			payload.transmission += log(max(surface.albedo * surfaceAlpha + (1.0 - surfaceAlpha), 0.001));
+		}
+
+		nCurrentSector = nAdjoinSector;
+	}
+
 	// if we reach here it's because we don't have a surface hit/we exhausted the traversal
 	// the accumulators can still be valid in this case so return true to indicate a valid payload	
 	return true;
