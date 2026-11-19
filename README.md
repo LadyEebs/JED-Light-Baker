@@ -72,15 +72,17 @@ The baker flags all linked surfaces as cog linked before baking. This has no eff
 - Emission must be forced with flag 0x40000000 to enable emission on 16 bit mats for the time being.
 
 # Contributions
+First and foremost, this project is public for learning purposes, not necessarily collaborative work. That said, I am not against people wanting to contribute and I appreciate anyone who takes an interest. It is, however, a hobby/passion project so I may be a little annoyingly strict about some things. Sorry in advance!
+
 ## Issue Tracker
-This is first and foremost a hobby/passion project. Any issue assigned to me is something I am interested in working on at some point. You may attempt it yourself, but know that I may well ignore or close that PR if it's something I really wanted to work on.
+As said, this is primarily a hobby/passion project. Any issue assigned to me is something I am interested in working on at some point. You may attempt it yourself, but know that I may well ignore or close that PR if it's something I really wanted to work on.
 
 Please don't take that personally.
 
-Before tackling a bug or feature, please make a new issue in the issue tracker so we can discuss it. I don't like rejecting PRs and I don't want you to feel like you've wasted your time.
+Before tackling a bug or feature, it would be best to make a new issue in the issue tracker so we can discuss it first and/or coordinate. I don't like rejecting PRs and I don't want you to feel like you've wasted your time.
 
 ## Pull Requests
-These are welcome but as I said above, please drop an issue in the tracker before you start so we can discuss the solution.
+These are welcome but as I said above, please drop an issue in the tracker before you start so we can discuss.
 
 ## AI
 This is a project by people/the community, for people/the community. AI use itself is not explicitly forbidden (some of the math here may be complex for some people even though they have genuinely good contributions), but use must be disclosed and I will likely reject a PR that was not written by a real person. If the goal is collaboration, I want to collaborate with _you_, not your bot.
