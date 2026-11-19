@@ -85,6 +85,8 @@ These are welcome but as I said above, please drop an issue in the tracker befor
 ## AI
 This is a project by people/the community, for people/the community. AI use itself is not explicitly forbidden (some of the math here may be complex for some people even though they have genuinely good contributions), but use must be disclosed and I will likely reject a PR that was not written by a real person. If the goal is collaboration, I want to collaborate with _you_, not your bot.
 
+Also, I may simply rewrite any AI generated code or comments as a matter of course.
+
 # How it Works
 A barebones version of the level is uploaded to the GPU via Buffers/StructuredBuffers. This minimal version contains basic geometry (surface normal, vertex positions, fill colors) and connectivity (adjoins).
 
