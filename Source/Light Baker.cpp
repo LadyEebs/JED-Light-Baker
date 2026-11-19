@@ -847,12 +847,25 @@ void CLightBakerDlg::BuildLights()
 			light.b = ToLinear(light.b);
 		}
 
+		light.r *= light.rgbintensity;
+		light.g *= light.rgbintensity;
+		light.b *= light.rgbintensity;
+
+		// ambient light intensity is computed in log space so that darkening and brightening can be represented with the same math
+		if (light.flags & ELight_Ambient)
+		{
+			light.r = log(fmax(light.r, 1e-6));
+			light.g = log(fmax(light.g, 1e-6));
+			light.b = log(fmax(light.b, 1e-6));
+			light.intensity = log(fmax(light.intensity, 1e-6));
+		}
+
 		SLight* pLight = &lights[nLightIndex];
 		pLight->nSectorIndex = m_pJed->FindSectorForXYZ(light.x, light.y, light.z);
 		pLight->nFlags = light.flags;
 		pLight->range = (float)light.range;
 		pLight->nLayerIndex = light.layer;
-		pLight->color = { (float)(light.r * light.rgbintensity), (float)(light.g * light.rgbintensity), (float)(light.b * light.rgbintensity), (float)light.intensity };
+		pLight->color = {(float)light.r, (float)light.g, (float)light.b, (float)light.intensity};
 		pLight->position = { (float)light.x, (float)light.y, (float)light.z, 1.0f };
 
 		if (light.flags & ELight_Sun) // TODO: more than 1?

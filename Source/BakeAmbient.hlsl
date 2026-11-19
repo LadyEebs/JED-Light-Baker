@@ -51,12 +51,8 @@ void main(int3 dispatchThreadID : SV_DispatchThreadID,
 			}
 		}
 
-		float4 color = aLights[nLightIndex].color * exp(payload.transmission);
-		// always using linear falloff
 		float atten = (aLights[nLightIndex].range - dist) / aLights[nLightIndex].range;
-		atten *= atten;
-		color *= atten;
-				
+		float4 color = exp((aLights[nLightIndex].color + payload.transmission) * atten);
 		localAcc *= color;
 	}
 
