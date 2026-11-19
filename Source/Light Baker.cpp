@@ -854,9 +854,9 @@ void CLightBakerDlg::BuildLights()
 		// ambient light intensity is computed in log space so that darkening and brightening can be represented with the same math
 		if (light.flags & ELight_Ambient)
 		{
-			light.r = log(fmax(light.r, 1e-6));
-			light.g = log(fmax(light.g, 1e-6));
-			light.b = log(fmax(light.b, 1e-6));
+			light.r = logf(fmaxf(light.r, 1e-6f));
+			light.g = logf(fmaxf(light.g, 1e-6f));
+			light.b = logf(fmaxf(light.b, 1e-6f));
 			light.intensity = log(fmax(light.intensity, 1e-6));
 		}
 
